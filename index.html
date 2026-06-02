@@ -639,10 +639,20 @@ async function carregarOS() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Carregando...</p></div>';
   try {
     const r = await fetch('/api/ordens');
-    if (!r.ok) throw new Error('API erro');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.erro || `Erro ${r.status}`);
+    }
     S.ordens = await r.json();
-  } catch {
-    S.ordens = carregarLocal();
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">⚠️</div>
+      <h3>Erro ao carregar</h3>
+      <p>${e.message}</p>
+      <button class="btn btn-primary" style="margin-top:16px;max-width:200px" onclick="carregarOS()">Tentar novamente</button>
+    </div>`;
+    atualizarStats();
+    return;
   }
   renderLista();
   atualizarStats();
@@ -820,28 +830,15 @@ async function salvarNovaOS() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(os),
     });
-    if (!r.ok) throw new Error((await r.json()).erro || 'Erro');
-    const nova = await r.json();
-    S.ordens.unshift({ ...nova, fotoAbertura: undefined, fotoConclusao: undefined });
-    salvarLocal();
-    alertEl.innerHTML = `<div class="alert alert-success">✅ O.S. ${nova.numero} aberta com sucesso!</div>`;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
+    S.ordens.unshift({ ...data, fotoAbertura: undefined, fotoConclusao: undefined });
+    alertEl.innerHTML = `<div class="alert alert-success">✅ O.S. ${data.numero} aberta com sucesso!</div>`;
     atualizarStats();
     setTimeout(() => { showSection('lista'); renderLista(); }, 1200);
   } catch (e) {
-    // fallback local
-    const numero = document.getElementById('novaNumero').value;
-    const novaLocal = {
-      id: Date.now().toString(), numero,
-      ...os, status:'aberta',
-      temFotoAbertura: !!os.fotoAbertura, temFotoConclusao: false,
-      criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
-      historico: [{ status:'aberta', data: new Date().toISOString(), obs:'Ordem de serviço aberta' }],
-    };
-    S.ordens.unshift(novaLocal);
-    salvarLocal();
-    alertEl.innerHTML = `<div class="alert alert-warning">⚠️ Salvo localmente (sem conexão com o banco).</div>`;
-    atualizarStats();
-    setTimeout(() => { showSection('lista'); renderLista(); }, 1200);
+    alertEl.innerHTML = `<div class="alert alert-error">❌ Erro ao salvar no banco: ${e.message}</div>`;
+    alertEl.scrollIntoView({ behavior:'smooth' });
   } finally {
     btn.disabled = false;
     btn.textContent = '✅ Abrir Ordem de Serviço';
