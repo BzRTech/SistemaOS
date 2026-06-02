@@ -79,8 +79,8 @@ app.get('/api/ordens', async (req, res) => {
     const rows = await sql`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
-             (foto_abertura IS NOT NULL AND foto_abertura != '') AS tem_abertura,
-             (foto_conclusao IS NOT NULL AND foto_conclusao != '') AS tem_conclusao,
+             CASE WHEN foto_abertura IS NOT NULL AND foto_abertura != '' THEN true ELSE false END AS tem_abertura,
+             CASE WHEN foto_conclusao IS NOT NULL AND foto_conclusao != '' THEN true ELSE false END AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `;
