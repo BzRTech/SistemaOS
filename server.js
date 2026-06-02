@@ -11,7 +11,6 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(__dirname));
 
-// ── BANCO ─────────────────────────────────────────────────────────────────────
 async function iniciarBanco() {
   await sql`
     CREATE TABLE IF NOT EXISTS ordens_servico (
@@ -36,7 +35,18 @@ async function iniciarBanco() {
       concluido_em    TIMESTAMPTZ
     )
   `;
-  console.log('✅ Banco de dados pronto!');
+
+  // Migração: renomeia colunas antigas se existirem
+  try {
+    await sql`ALTER TABLE ordens_servico RENAME COLUMN fotos_abertura TO foto_abertura`;
+    console.log('Migração: fotos_abertura -> foto_abertura');
+  } catch {}
+  try {
+    await sql`ALTER TABLE ordens_servico RENAME COLUMN fotos_conclusao TO foto_conclusao`;
+    console.log('Migração: fotos_conclusao -> foto_conclusao');
+  } catch {}
+
+  console.log('Banco de dados pronto!');
 }
 
 async function gerarNumeroOS() {
@@ -51,117 +61,70 @@ async function gerarNumeroOS() {
   return `OS-${ano}-${String(seq).padStart(4, '0')}`;
 }
 
-// ── HELPER ────────────────────────────────────────────────────────────────────
-function mapRow(r, incluirFotos = true) {
+function mapRow(r, incluirFotos) {
   return {
-    id: r.id,
-    numero: r.numero,
-    tipo: r.tipo,
-    descricao: r.descricao,
-    endereco: r.endereco,
-    bairro: r.bairro,
-    referencia: r.referencia,
-    solicitante: r.solicitante,
-    responsavel: r.responsavel,
-    equipe: r.equipe,
-    prioridade: r.prioridade,
-    prazo: r.prazo,
-    status: r.status,
+    id: r.id, numero: r.numero, tipo: r.tipo, descricao: r.descricao,
+    endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
+    solicitante: r.solicitante, responsavel: r.responsavel, equipe: r.equipe,
+    prioridade: r.prioridade, prazo: r.prazo, status: r.status,
     temFotoAbertura: !!r.foto_abertura,
     temFotoConclusao: !!r.foto_conclusao,
-    ...(incluirFotos && {
-      fotoAbertura: r.foto_abertura || null,
-      fotoConclusao: r.foto_conclusao || null,
-    }),
+    fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
+    fotoConclusao: incluirFotos ? (r.foto_conclusao || null) : undefined,
     historico: r.historico || [],
-    criadoEm: r.criado_em,
-    atualizadoEm: r.atualizado_em,
-    concluidoEm: r.concluido_em,
+    criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
   };
 }
 
-// ── ROTAS ─────────────────────────────────────────────────────────────────────
-
 app.get('/api/ping', async (req, res) => {
-  try {
-    await sql`SELECT 1`;
-    res.json({ ok: true, mensagem: 'Conectado ao Neon com sucesso!' });
-  } catch (e) {
-    res.status(500).json({ ok: false, erro: e.message });
-  }
+  try { await sql`SELECT 1`; res.json({ ok: true, mensagem: 'Conectado!' }); }
+  catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
 app.get('/api/proximo-numero', async (req, res) => {
-  try {
-    const numero = await gerarNumeroOS();
-    res.json({ numero });
-  } catch (e) {
-    res.status(500).json({ erro: e.message });
-  }
+  try { res.json({ numero: await gerarNumeroOS() }); }
+  catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-// Listar todas (sem base64 das fotos)
 app.get('/api/ordens', async (req, res) => {
   try {
     const rows = await sql`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
-             (foto_abertura IS NOT NULL AND foto_abertura != '') AS foto_abertura,
-             (foto_conclusao IS NOT NULL AND foto_conclusao != '') AS foto_conclusao,
+             CASE WHEN foto_abertura  IS NOT NULL AND foto_abertura  != '' THEN true ELSE false END AS tem_abertura,
+             CASE WHEN foto_conclusao IS NOT NULL AND foto_conclusao != '' THEN true ELSE false END AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `;
     res.json(rows.map(r => ({
-      id: r.id,
-      numero: r.numero,
-      tipo: r.tipo,
-      descricao: r.descricao,
-      endereco: r.endereco,
-      bairro: r.bairro,
-      referencia: r.referencia,
-      solicitante: r.solicitante,
-      responsavel: r.responsavel,
-      equipe: r.equipe,
-      prioridade: r.prioridade,
-      prazo: r.prazo,
-      status: r.status,
-      temFotoAbertura: r.foto_abertura === true,
-      temFotoConclusao: r.foto_conclusao === true,
+      id: r.id, numero: r.numero, tipo: r.tipo, descricao: r.descricao,
+      endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
+      solicitante: r.solicitante, responsavel: r.responsavel, equipe: r.equipe,
+      prioridade: r.prioridade, prazo: r.prazo, status: r.status,
+      temFotoAbertura: r.tem_abertura === true,
+      temFotoConclusao: r.tem_conclusao === true,
       historico: r.historico || [],
-      criadoEm: r.criado_em,
-      atualizadoEm: r.atualizado_em,
-      concluidoEm: r.concluido_em,
+      criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
     })));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: e.message });
-  }
+  } catch (e) { console.error('GET /api/ordens:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Buscar uma OS completa (com fotos)
 app.get('/api/ordens/:id', async (req, res) => {
   try {
     const rows = await sql`SELECT * FROM ordens_servico WHERE id = ${req.params.id}`;
-    if (!rows.length) return res.status(404).json({ erro: 'Não encontrada' });
+    if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
     res.json(mapRow(rows[0], true));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: e.message });
-  }
+  } catch (e) { console.error('GET /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Criar nova OS
 app.post('/api/ordens', async (req, res) => {
   try {
     const o = req.body;
     const id = uuidv4();
     const numero = await gerarNumeroOS();
     const historico = JSON.stringify([{
-      status: 'aberta',
-      data: new Date().toISOString(),
-      obs: 'Ordem de serviço aberta'
+      status: 'aberta', data: new Date().toISOString(), obs: 'Ordem de servico aberta'
     }]);
-
     const rows = await sql`
       INSERT INTO ordens_servico (
         id, numero, tipo, descricao, endereco, bairro, referencia,
@@ -173,29 +136,20 @@ app.post('/api/ordens', async (req, res) => {
         ${o.solicitante}, ${o.responsavel || ''}, ${o.equipe || ''},
         ${o.prioridade || 'media'}, ${o.prazo || null}, 'aberta',
         ${o.fotoAbertura || null}, ${historico}
-      )
-      RETURNING *
+      ) RETURNING *
     `;
     res.json(mapRow(rows[0], true));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: e.message });
-  }
+  } catch (e) { console.error('POST /api/ordens:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Atualizar OS
 app.put('/api/ordens/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
-
-    // Busca fotos atuais para não sobrescrever quando não enviadas
     const atual = await sql`SELECT foto_abertura, foto_conclusao FROM ordens_servico WHERE id = ${id}`;
-    if (!atual.length) return res.status(404).json({ erro: 'Não encontrada' });
-
-    const fotoAbertura = o.fotoAbertura !== undefined ? o.fotoAbertura : atual[0].foto_abertura;
+    if (!atual.length) return res.status(404).json({ erro: 'Nao encontrada' });
+    const fotoAbertura  = o.fotoAbertura  !== undefined ? o.fotoAbertura  : atual[0].foto_abertura;
     const fotoConclusao = o.fotoConclusao !== undefined ? o.fotoConclusao : atual[0].foto_conclusao;
-
     await sql`
       UPDATE ordens_servico SET
         status         = ${o.status},
@@ -208,38 +162,22 @@ app.put('/api/ordens/:id', async (req, res) => {
         concluido_em   = ${o.concluidoEm || null}
       WHERE id = ${id}
     `;
-
     const rows = await sql`SELECT * FROM ordens_servico WHERE id = ${id}`;
     res.json(mapRow(rows[0], true));
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: e.message });
-  }
+  } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Excluir OS
 app.delete('/api/ordens/:id', async (req, res) => {
   try {
     await sql`DELETE FROM ordens_servico WHERE id = ${req.params.id}`;
     res.json({ ok: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ erro: e.message });
-  }
+  } catch (e) { console.error('DELETE /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// ── INICIAR ───────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-
 iniciarBanco().then(() => {
-  app.listen(PORT, () => {
-    console.log('');
-    console.log('🏗️  Sistema de O.S. — Secretaria de Infraestrutura');
-    console.log('─────────────────────────────────────────────────');
-    console.log(`🌐 Acesse: http://localhost:${PORT}`);
-    console.log('─────────────────────────────────────────────────');
-  });
+  app.listen(PORT, () => console.log('Servidor rodando na porta ' + PORT));
 }).catch(err => {
-  console.error('❌ Erro ao conectar no banco:', err.message);
+  console.error('Erro ao conectar no banco:', err.message);
   process.exit(1);
 });
