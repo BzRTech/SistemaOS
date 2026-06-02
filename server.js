@@ -46,6 +46,17 @@ async function iniciarBanco() {
     console.log('Migração: fotos_conclusao -> foto_conclusao');
   } catch {}
 
+  // Migração: corrige historico inválido (arrays JSON armazenados como texto)
+  try {
+    await sql`
+      UPDATE ordens_servico
+      SET historico = '[]'::jsonb
+      WHERE historico IS NULL
+         OR historico::text = ''
+         OR historico::text = 'null'
+    `;
+  } catch {}
+
   console.log('Banco de dados pronto!');
 }
 
@@ -91,8 +102,8 @@ app.get('/api/ordens', async (req, res) => {
     const rows = await sql`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
-             CASE WHEN foto_abertura  IS NOT NULL AND foto_abertura  != '' THEN true ELSE false END AS tem_abertura,
-             CASE WHEN foto_conclusao IS NOT NULL AND foto_conclusao != '' THEN true ELSE false END AS tem_conclusao,
+             (foto_abertura  IS NOT NULL AND foto_abertura  <> '') AS tem_abertura,
+             (foto_conclusao IS NOT NULL AND foto_conclusao <> '') AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `;
@@ -101,8 +112,8 @@ app.get('/api/ordens', async (req, res) => {
       endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
       solicitante: r.solicitante, responsavel: r.responsavel, equipe: r.equipe,
       prioridade: r.prioridade, prazo: r.prazo, status: r.status,
-      temFotoAbertura: r.tem_abertura === true,
-      temFotoConclusao: r.tem_conclusao === true,
+      temFotoAbertura: !!r.tem_abertura,
+      temFotoConclusao: !!r.tem_conclusao,
       historico: r.historico || [],
       criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
     })));
