@@ -24,89 +24,96 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
 
 async function iniciarBanco() {
-  // usa um único client: a função pg_temp.try_jsonb é por sessão
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS ordens_servico (
-        id              TEXT PRIMARY KEY,
-        numero          TEXT UNIQUE NOT NULL,
-        tipo            TEXT,
-        descricao       TEXT,
-        endereco        TEXT,
-        bairro          TEXT,
-        referencia      TEXT,
-        solicitante     TEXT NOT NULL,
-        responsavel     TEXT,
-        equipe          TEXT,
-        prioridade      TEXT DEFAULT 'media',
-        prazo           DATE,
-        status          TEXT DEFAULT 'aberta',
-        foto_abertura   TEXT,
-        foto_conclusao  TEXT,
-        historico       JSONB DEFAULT '[]',
-        criado_em       TIMESTAMPTZ DEFAULT NOW(),
-        atualizado_em   TIMESTAMPTZ DEFAULT NOW(),
-        concluido_em    TIMESTAMPTZ
-      )
-    `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ordens_servico (
+      id              TEXT PRIMARY KEY,
+      numero          TEXT UNIQUE NOT NULL,
+      tipo            TEXT,
+      descricao       TEXT,
+      endereco        TEXT,
+      bairro          TEXT,
+      referencia      TEXT,
+      solicitante     TEXT NOT NULL,
+      responsavel     TEXT,
+      equipe          TEXT,
+      prioridade      TEXT DEFAULT 'media',
+      prazo           DATE,
+      status          TEXT DEFAULT 'aberta',
+      foto_abertura   TEXT,
+      foto_conclusao  TEXT,
+      historico       JSONB DEFAULT '[]',
+      criado_em       TIMESTAMPTZ DEFAULT NOW(),
+      atualizado_em   TIMESTAMPTZ DEFAULT NOW(),
+      concluido_em    TIMESTAMPTZ
+    )
+  `);
 
-    // Migração: renomeia colunas antigas se existirem
-    const renames = [
-      ['fotos_abertura', 'foto_abertura'],
-      ['fotos_conclusao', 'foto_conclusao'],
-    ];
-    for (const [antiga, nova] of renames) {
-      try {
-        await client.query(`ALTER TABLE ordens_servico RENAME COLUMN ${antiga} TO ${nova}`);
-        console.log(`Migração: ${antiga} -> ${nova}`);
-      } catch {}
-    }
-
-    // try_jsonb: converte texto em jsonb, devolvendo NULL se o conteúdo for inválido
-    await client.query(`
-      CREATE OR REPLACE FUNCTION pg_temp.try_jsonb(t text) RETURNS jsonb AS $$
-      BEGIN RETURN t::jsonb; EXCEPTION WHEN others THEN RETURN NULL; END
-      $$ LANGUAGE plpgsql
-    `);
-
-    // Migração: bases antigas tinham historico como TEXT/JSON com conteúdo
-    // inválido ("", "null", JSON duplamente codificado, lixo) — converte
-    // a coluna para JSONB salvando o que for válido
-    const { rows: col } = await client.query(`
-      SELECT data_type FROM information_schema.columns
-      WHERE table_name = 'ordens_servico' AND column_name = 'historico'
-    `);
-    if (col.length && col[0].data_type !== 'jsonb') {
-      console.log(`Migração: historico ${col[0].data_type} -> jsonb`);
-      await client.query(`ALTER TABLE ordens_servico ALTER COLUMN historico DROP DEFAULT`);
-      await client.query(`
-        ALTER TABLE ordens_servico ALTER COLUMN historico TYPE jsonb
-        USING COALESCE(pg_temp.try_jsonb(historico::text), '[]'::jsonb)
-      `);
-      await client.query(`ALTER TABLE ordens_servico ALTER COLUMN historico SET DEFAULT '[]'::jsonb`);
-    }
-
-    // Migração: historico gravado como string JSON dentro do jsonb
-    // (ex.: '"[{...}]"') — desembrulha; o que não der, vira []
-    await client.query(`
-      UPDATE ordens_servico
-      SET historico = COALESCE(pg_temp.try_jsonb(historico #>> '{}'), '[]'::jsonb)
-      WHERE jsonb_typeof(historico) = 'string'
-    `);
-    await client.query(`
-      UPDATE ordens_servico
-      SET historico = '[]'::jsonb
-      WHERE historico IS NULL OR jsonb_typeof(historico) <> 'array'
-    `);
-
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status)`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_os_criado_em ON ordens_servico (criado_em DESC)`);
-
-    console.log('Banco de dados pronto!');
-  } finally {
-    client.release();
+  // Migração: renomeia colunas antigas se existirem
+  const renames = [
+    ['fotos_abertura', 'foto_abertura'],
+    ['fotos_conclusao', 'foto_conclusao'],
+  ];
+  for (const [antiga, nova] of renames) {
+    try {
+      await pool.query(`ALTER TABLE ordens_servico RENAME COLUMN ${antiga} TO ${nova}`);
+      console.log(`Migração: ${antiga} -> ${nova}`);
+    } catch {}
   }
+
+  // Migração do historico legado (TEXT/JSON com conteúdo inválido: '',
+  // 'null', JSON duplamente codificado, lixo) para JSONB saneado.
+  // Tudo em UM único comando (DO block): funciona inclusive atrás do
+  // pooler do Neon (PgBouncer), que não preserva objetos de sessão.
+  await pool.query(`
+    DO $mig$
+    DECLARE
+      coltype text;
+      r record;
+      v jsonb;
+    BEGIN
+      SELECT data_type INTO coltype
+      FROM information_schema.columns
+      WHERE table_name = 'ordens_servico' AND column_name = 'historico';
+
+      IF coltype IS NOT NULL AND coltype <> 'jsonb' THEN
+        RAISE NOTICE 'Migrando historico de % para jsonb', coltype;
+        ALTER TABLE ordens_servico ALTER COLUMN historico DROP DEFAULT;
+        ALTER TABLE ordens_servico ALTER COLUMN historico TYPE text USING historico::text;
+        FOR r IN SELECT id, historico AS h FROM ordens_servico LOOP
+          BEGIN
+            v := r.h::jsonb;
+          EXCEPTION WHEN others THEN
+            v := '[]'::jsonb;
+          END;
+          IF v IS NULL THEN v := '[]'::jsonb; END IF;
+          UPDATE ordens_servico SET historico = v::text WHERE id = r.id;
+        END LOOP;
+        ALTER TABLE ordens_servico ALTER COLUMN historico TYPE jsonb USING historico::jsonb;
+        ALTER TABLE ordens_servico ALTER COLUMN historico SET DEFAULT '[]'::jsonb;
+      END IF;
+
+      -- desembrulha historico gravado como string JSON ('"[{...}]"')
+      FOR r IN SELECT id, historico AS h FROM ordens_servico
+               WHERE jsonb_typeof(historico) = 'string' LOOP
+        BEGIN
+          v := (r.h #>> '{}')::jsonb;
+        EXCEPTION WHEN others THEN
+          v := '[]'::jsonb;
+        END;
+        IF v IS NULL OR jsonb_typeof(v) <> 'array' THEN v := '[]'::jsonb; END IF;
+        UPDATE ordens_servico SET historico = v WHERE id = r.id;
+      END LOOP;
+
+      UPDATE ordens_servico SET historico = '[]'::jsonb
+      WHERE historico IS NULL OR jsonb_typeof(historico) <> 'array';
+    END
+    $mig$
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_criado_em ON ordens_servico (criado_em DESC)`);
+
+  console.log('Banco de dados pronto!');
 }
 
 // Próximo número sequencial do ano. Recebe um client para poder rodar
@@ -122,6 +129,15 @@ async function gerarNumeroOS(client, ano = new Date().getFullYear()) {
 
 const fmtNumero = (ano, seq) => `OS-${ano}-${String(seq).padStart(4, '0')}`;
 
+// historico pode vir como array (jsonb), string JSON ou até string
+// duplamente codificada em bases legadas — nunca deixa quebrar a resposta
+function parseHistorico(v) {
+  for (let i = 0; i < 2 && typeof v === 'string'; i++) {
+    try { v = JSON.parse(v); } catch { return []; }
+  }
+  return Array.isArray(v) ? v : [];
+}
+
 function mapRow(r, incluirFotos) {
   return {
     id: r.id, numero: r.numero, tipo: r.tipo, descricao: r.descricao,
@@ -132,7 +148,7 @@ function mapRow(r, incluirFotos) {
     temFotoConclusao: !!r.foto_conclusao,
     fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
     fotoConclusao: incluirFotos ? (r.foto_conclusao || null) : undefined,
-    historico: r.historico || [],
+    historico: parseHistorico(r.historico),
     criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
   };
 }
