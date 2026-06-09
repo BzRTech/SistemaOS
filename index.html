@@ -546,6 +546,22 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     </div>
   </div>
   <div class="form-card">
+    <div class="form-card-title">📤 Importar CSV <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(ex.: dados de buracos)</span></div>
+    <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">
+      Selecione um arquivo CSV. As colunas são detectadas automaticamente
+      (endereço/rua, bairro, descrição, referência, solicitante, prioridade, data, latitude/longitude...).
+      Cada linha vira uma O.S. aberta.
+    </p>
+    <div class="foto-upload-area" onclick="document.getElementById('inputCSV').click()">
+      <input type="file" id="inputCSV" accept=".csv,text/csv" style="display:none" onchange="selecionarCSV(this)">
+      <div class="foto-upload-icon">📄</div>
+      <div class="foto-upload-text">Toque para escolher o arquivo CSV</div>
+      <div class="foto-upload-sub">Separador vírgula ou ponto-e-vírgula · com cabeçalho</div>
+    </div>
+    <div id="importPreview" style="margin-top:12px"></div>
+    <button class="btn btn-primary" id="btnImportar" style="display:none;margin-top:10px" onclick="confirmarImportCSV()">✅ Importar ordens</button>
+  </div>
+  <div class="form-card">
     <div class="form-card-title">📥 Exportar</div>
     <div class="form-group">
       <label class="form-label">Período</label>
@@ -1127,6 +1143,179 @@ function renderRelatorio() {
   `;
 }
 
+// ── IMPORTAR CSV ──────────────────────────────────────────────────────────────
+let csvOrdensParaImportar = [];
+
+function parseCSV(texto) {
+  texto = texto.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  // detecta separador pela 1ª linha: o que aparecer mais vezes fora de aspas
+  const primeira = texto.split('\n')[0] || '';
+  const conta = sep => (primeira.match(new RegExp(`\\${sep}`, 'g')) || []).length;
+  const sep = conta(';') > conta(',') ? ';' : ',';
+
+  const linhas = [];
+  let linha = [], campo = '', aspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (aspas) {
+      if (c === '"') {
+        if (texto[i + 1] === '"') { campo += '"'; i++; }
+        else aspas = false;
+      } else campo += c;
+    } else if (c === '"') aspas = true;
+    else if (c === sep) { linha.push(campo); campo = ''; }
+    else if (c === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
+    else campo += c;
+  }
+  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas.filter(l => l.some(v => v.trim() !== ''));
+}
+
+function normalizarCabecalho(h) {
+  return h.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+// sinônimos aceitos para cada campo da O.S.
+const MAPA_COLUNAS = {
+  endereco:    ['endereco', 'rua', 'logradouro', 'local', 'via', 'address', 'localizacao'],
+  bairro:      ['bairro', 'distrito', 'regiao'],
+  referencia:  ['referencia', 'ponto_de_referencia', 'ponto_referencia', 'proximidade', 'observacao_local'],
+  descricao:   ['descricao', 'observacao', 'observacoes', 'obs', 'problema', 'detalhes', 'ocorrencia'],
+  solicitante: ['solicitante', 'requerente', 'cidadao', 'nome', 'autor'],
+  responsavel: ['responsavel', 'fiscal', 'engenheiro'],
+  equipe:      ['equipe', 'empreiteira', 'empresa'],
+  prioridade:  ['prioridade', 'urgencia', 'severidade', 'gravidade'],
+  prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
+  tipo:        ['tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria'],
+  criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em'],
+  latitude:    ['latitude', 'lat'],
+  longitude:   ['longitude', 'lng', 'long', 'lon'],
+};
+
+function mapearColunas(cabecalhos) {
+  const indices = {};
+  cabecalhos.map(normalizarCabecalho).forEach((h, i) => {
+    for (const [campo, sinonimos] of Object.entries(MAPA_COLUNAS)) {
+      if (indices[campo] === undefined && sinonimos.includes(h)) indices[campo] = i;
+    }
+  });
+  return indices;
+}
+
+function normalizarPrioridade(v) {
+  const p = (v || '').toLowerCase();
+  if (/alta|urgente|grave|critic/.test(p)) return 'alta';
+  if (/baixa|leve/.test(p)) return 'baixa';
+  return 'media';
+}
+
+function normalizarDataCSV(v) {
+  if (!v) return null;
+  v = v.trim();
+  const br = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (br) return `${br[3]}-${br[2].padStart(2,'0')}-${br[1].padStart(2,'0')}`;
+  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0];
+  return null;
+}
+
+function selecionarCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => processarCSV(e.target.result, file.name);
+  reader.readAsText(file, 'utf-8');
+  input.value = '';
+}
+
+function processarCSV(texto, nomeArquivo) {
+  const preview = document.getElementById('importPreview');
+  const btn = document.getElementById('btnImportar');
+  csvOrdensParaImportar = [];
+  btn.style.display = 'none';
+
+  const linhas = parseCSV(texto);
+  if (linhas.length < 2) {
+    preview.innerHTML = `<div class="alert alert-error">❌ Arquivo vazio ou sem linhas de dados (precisa de cabeçalho + dados).</div>`;
+    return;
+  }
+
+  const idx = mapearColunas(linhas[0]);
+  if (idx.endereco === undefined && idx.descricao === undefined) {
+    preview.innerHTML = `<div class="alert alert-error">❌ Não encontrei coluna de endereço nem de descrição no cabeçalho:<br><code>${linhas[0].join(' | ')}</code></div>`;
+    return;
+  }
+
+  const pega = (linha, campo) => idx[campo] !== undefined ? (linha[idx[campo]] || '').trim() : '';
+
+  for (const linha of linhas.slice(1)) {
+    const endereco = pega(linha, 'endereco');
+    let descricao = pega(linha, 'descricao');
+    if (!endereco && !descricao) continue;
+
+    let referencia = pega(linha, 'referencia');
+    const lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
+    if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
+    if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
+
+    csvOrdensParaImportar.push({
+      tipo: pega(linha, 'tipo') || 'Pavimentação / Asfalto',
+      descricao, endereco,
+      bairro: pega(linha, 'bairro'),
+      referencia,
+      solicitante: pega(linha, 'solicitante'),
+      responsavel: pega(linha, 'responsavel'),
+      equipe: pega(linha, 'equipe'),
+      prioridade: normalizarPrioridade(pega(linha, 'prioridade')),
+      prazo: normalizarDataCSV(pega(linha, 'prazo')),
+      criadoEm: normalizarDataCSV(pega(linha, 'criadoEm')),
+    });
+  }
+
+  if (!csvOrdensParaImportar.length) {
+    preview.innerHTML = `<div class="alert alert-error">❌ Nenhuma linha válida encontrada no arquivo.</div>`;
+    return;
+  }
+
+  const detectadas = Object.keys(idx).map(c => `<code>${c}</code>`).join(', ');
+  const amostra = csvOrdensParaImportar.slice(0, 3).map(o =>
+    `<li style="margin-bottom:4px">📍 ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}</li>`).join('');
+  preview.innerHTML = `
+    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${csvOrdensParaImportar.length} ordem(ns) prontas para importar.</div>
+    <div style="font-size:12px;color:var(--cinza-texto);margin-bottom:8px">Colunas reconhecidas: ${detectadas}</div>
+    <ul style="font-size:12px;color:var(--cinza-texto);padding-left:16px">${amostra}</ul>`;
+  btn.style.display = 'flex';
+}
+
+async function confirmarImportCSV() {
+  if (!csvOrdensParaImportar.length) return;
+  const btn = document.getElementById('btnImportar');
+  const preview = document.getElementById('importPreview');
+  btn.disabled = true;
+  btn.textContent = '⏳ Importando...';
+  try {
+    const r = await fetch('/api/ordens/importar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordens: csvOrdensParaImportar }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
+    preview.innerHTML = `<div class="alert alert-success">✅ ${data.importadas} O.S. importadas com sucesso!${data.ignoradas ? ` (${data.ignoradas} linha(s) ignoradas)` : ''}</div>`;
+    csvOrdensParaImportar = [];
+    btn.style.display = 'none';
+    await carregarOS();
+    renderRelatorio();
+    toast(`✅ ${data.importadas} O.S. criadas a partir do CSV!`);
+  } catch (e) {
+    preview.innerHTML += `<div class="alert alert-error">❌ Erro ao importar: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✅ Importar ordens';
+  }
+}
+
 function exportarCSV() {
   let ordens = S.ordens;
   const de = document.getElementById('relDe').value;
@@ -1136,11 +1325,12 @@ function exportarCSV() {
 
   const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Prazo','Aberta em','Concluída em'];
   const rows = ordens.map(o => [
-    o.numero, o.tipo, (o.descricao||'').replace(/,/g,'·'), labelStatus(o.status),
+    o.numero, o.tipo, o.descricao||'', labelStatus(o.status),
     o.endereco||'', o.bairro||'', o.solicitante||'', o.responsavel||'', o.equipe||'',
     o.prioridade||'', o.prazo||'', fmtDataHora(o.criadoEm), o.concluidoEm?fmtDataHora(o.concluidoEm):''
   ]);
-  const csv = [hdrs, ...rows].map(r => r.join(',')).join('\n');
+  const esc = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g,'""') + '"' : String(v);
+  const csv = [hdrs, ...rows].map(r => r.map(esc).join(',')).join('\n');
   const url = URL.createObjectURL(new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' }));
   Object.assign(document.createElement('a'), { href:url, download:`OS_${new Date().toISOString().slice(0,10)}.csv` }).click();
 }
