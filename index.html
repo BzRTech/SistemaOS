@@ -1177,10 +1177,10 @@ function normalizarCabecalho(h) {
     .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
-// sinônimos aceitos para cada campo da O.S.
+// sinônimos aceitos para cada campo da O.S. (em ordem de prioridade)
 const MAPA_COLUNAS = {
-  endereco:    ['endereco', 'rua', 'logradouro', 'local', 'via', 'address', 'localizacao'],
-  bairro:      ['bairro', 'distrito', 'regiao'],
+  endereco:    ['endereco', 'rua', 'logradouro', 'street', 'local', 'via', 'address', 'localizacao'],
+  bairro:      ['bairro', 'distrito', 'regiao', 'cidade', 'city', 'municipio'],
   referencia:  ['referencia', 'ponto_de_referencia', 'ponto_referencia', 'proximidade', 'observacao_local'],
   descricao:   ['descricao', 'observacao', 'observacoes', 'obs', 'problema', 'detalhes', 'ocorrencia'],
   solicitante: ['solicitante', 'requerente', 'cidadao', 'nome', 'autor'],
@@ -1188,20 +1188,34 @@ const MAPA_COLUNAS = {
   equipe:      ['equipe', 'empreiteira', 'empresa'],
   prioridade:  ['prioridade', 'urgencia', 'severidade', 'gravidade'],
   prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
-  tipo:        ['tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria'],
-  criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em'],
+  tipo:        ['subtipo', 'subtype', 'tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria', 'type'],
+  quantidade:  ['record_count', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
+  criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
   latitude:    ['latitude', 'lat'],
   longitude:   ['longitude', 'lng', 'long', 'lon'],
 };
 
 function mapearColunas(cabecalhos) {
+  const norm = cabecalhos.map(normalizarCabecalho);
   const indices = {};
-  cabecalhos.map(normalizarCabecalho).forEach((h, i) => {
-    for (const [campo, sinonimos] of Object.entries(MAPA_COLUNAS)) {
-      if (indices[campo] === undefined && sinonimos.includes(h)) indices[campo] = i;
+  for (const [campo, sinonimos] of Object.entries(MAPA_COLUNAS)) {
+    for (const s of sinonimos) {
+      const i = norm.indexOf(s);
+      if (i >= 0) { indices[campo] = i; break; }
     }
-  });
+  }
   return indices;
+}
+
+// traduz códigos técnicos (ex.: Waze) para tipos do sistema
+function traduzTipo(v) {
+  v = (v || '').trim();
+  if (!v) return '';
+  if (/pot.?hole|buraco/i.test(v)) return 'Pavimentação / Asfalto';
+  if (/flood|alagamento/i.test(v)) return 'Drenagem / Esgoto';
+  if (/light|ilumina/i.test(v)) return 'Iluminação Pública';
+  if (/^[A-Z][A-Z_ ]+$/.test(v)) return 'Outros'; // código desconhecido
+  return v;
 }
 
 function normalizarPrioridade(v) {
@@ -1218,6 +1232,15 @@ function normalizarDataCSV(v) {
   if (br) return `${br[3]}-${br[2].padStart(2,'0')}-${br[1].padStart(2,'0')}`;
   const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return iso[0];
+  // formato extenso: "8 de jun. de 2026" / "8 de junho de 2026"
+  const ext = v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .match(/^(\d{1,2})\s+de\s+([a-z]{3})[a-z.]*\s+de\s+(\d{4})/);
+  if (ext) {
+    const meses = { jan:'01', fev:'02', mar:'03', abr:'04', mai:'05', jun:'06',
+                    jul:'07', ago:'08', set:'09', out:'10', nov:'11', dez:'12' };
+    const m = meses[ext[2]];
+    if (m) return `${ext[3]}-${m}-${ext[1].padStart(2,'0')}`;
+  }
   return null;
 }
 
@@ -1259,9 +1282,11 @@ function processarCSV(texto, nomeArquivo) {
     const lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
     if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
     if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
+    const qtd = parseInt(pega(linha, 'quantidade'), 10);
+    if (qtd > 1) descricao += ` (${qtd} ocorrências registradas)`;
 
     csvOrdensParaImportar.push({
-      tipo: pega(linha, 'tipo') || 'Pavimentação / Asfalto',
+      tipo: traduzTipo(pega(linha, 'tipo')) || 'Pavimentação / Asfalto',
       descricao, endereco,
       bairro: pega(linha, 'bairro'),
       referencia,
