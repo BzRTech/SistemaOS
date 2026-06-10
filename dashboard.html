@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard | Gestão de O.S.</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --verde: #1a6e45;
+  --verde-claro: #e8f5ee;
+  --verde-medio: #2d9e65;
+  --verde-escuro: #0d4a2e;
+  --amarelo: #f5a623;
+  --laranja: #e07b1a;
+  --cinza-bg: #f4f5f7;
+  --cinza-borda: #e0e4e8;
+  --cinza-texto: #5a6473;
+  --cinza-escuro: #1e2532;
+  --azul: #1a6eb4;
+  --azul-claro: #e8f0fa;
+  --vermelho: #d32f2f;
+  --vermelho-claro: #fdecea;
+  --sombra: 0 2px 12px rgba(0,0,0,0.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--cinza-bg); color: var(--cinza-escuro);
+  min-height: 100vh;
+}
+.topo {
+  background: var(--verde-escuro); color: white;
+  padding: 16px 28px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap;
+}
+.topo h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+.topo .sub { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+.topo-acoes { display: flex; align-items: center; gap: 12px; }
+.atualizado { font-size: 12px; opacity: 0.7; }
+.btn-voltar {
+  background: rgba(255,255,255,0.14); color: white; text-decoration: none;
+  padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
+}
+.conteudo { padding: 22px 28px 40px; max-width: 1400px; margin: 0 auto; }
+
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px; margin-bottom: 22px;
+}
+.card-stat {
+  background: white; border-radius: 14px; padding: 18px;
+  box-shadow: var(--sombra); border-top: 4px solid var(--cinza-borda);
+}
+.card-stat .num { font-size: 34px; font-weight: 800; line-height: 1.1; }
+.card-stat .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cinza-texto); margin-top: 4px; }
+.card-stat.c-total { border-top-color: var(--verde-escuro); }
+.card-stat.c-aberta { border-top-color: var(--azul); }    .card-stat.c-aberta .num { color: var(--azul); }
+.card-stat.c-andamento { border-top-color: var(--amarelo); } .card-stat.c-andamento .num { color: var(--laranja); }
+.card-stat.c-concluida { border-top-color: var(--verde-medio); } .card-stat.c-concluida .num { color: var(--verde); }
+.card-stat.c-cancelada { border-top-color: var(--vermelho); } .card-stat.c-cancelada .num { color: var(--vermelho); }
+.card-stat.c-recorrente { border-top-color: var(--laranja); } .card-stat.c-recorrente .num { color: var(--laranja); }
+
+.paineis { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .paineis { grid-template-columns: 1fr; } .conteudo { padding: 16px; } .topo { padding: 14px 16px; } }
+.painel {
+  background: white; border-radius: 14px; padding: 20px;
+  box-shadow: var(--sombra);
+}
+.painel h2 {
+  font-size: 14px; font-weight: 700; color: var(--verde-escuro);
+  padding-bottom: 10px; margin-bottom: 14px;
+  border-bottom: 2px solid var(--verde-claro);
+  display: flex; align-items: center; gap: 8px;
+}
+.painel-largo { grid-column: 1 / -1; }
+
+.barra-linha { margin-bottom: 10px; }
+.barra-topo { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.barra-topo .qtd { font-weight: 700; }
+.barra-fundo { height: 9px; background: var(--cinza-bg); border-radius: 5px; overflow: hidden; }
+.barra-fill { height: 100%; background: var(--verde); border-radius: 5px; }
+.barra-fill.azul { background: var(--azul); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--cinza-texto); padding: 8px 10px; border-bottom: 2px solid var(--cinza-bg);
+}
+td { padding: 9px 10px; border-bottom: 1px solid var(--cinza-bg); vertical-align: middle; }
+tr:hover td { background: #fafbfc; }
+.badge {
+  font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+  text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
+}
+.badge-aberta { background: var(--azul-claro); color: var(--azul); }
+.badge-andamento { background: #fff8e6; color: var(--laranja); }
+.badge-concluida { background: var(--verde-claro); color: var(--verde); }
+.badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
+.pill-rec {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fff3e0; color: var(--laranja); border: 1px solid #f5cf9b;
+  font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; white-space: nowrap;
+}
+.link-mapa { color: var(--azul); text-decoration: none; font-size: 13px; white-space: nowrap; }
+.vazio { text-align: center; padding: 40px; color: var(--cinza-texto); font-size: 14px; }
+.erro-box {
+  background: var(--vermelho-claro); color: var(--vermelho);
+  padding: 14px 18px; border-radius: 10px; margin-bottom: 18px; font-weight: 600; font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <div>
+    <h1>📊 Dashboard — Gestão de O.S.</h1>
+    <div class="sub">Secretaria de Infraestrutura</div>
+  </div>
+  <div class="topo-acoes">
+    <span class="atualizado" id="atualizadoEm"></span>
+    <a class="btn-voltar" href="/">← Sistema</a>
+  </div>
+</header>
+
+<div class="conteudo">
+  <div id="erro"></div>
+
+  <div class="cards">
+    <div class="card-stat c-total"><div class="num" id="stTotal">–</div><div class="rotulo">Total de O.S.</div></div>
+    <div class="card-stat c-aberta"><div class="num" id="stAbertas">–</div><div class="rotulo">Abertas</div></div>
+    <div class="card-stat c-andamento"><div class="num" id="stAndamento">–</div><div class="rotulo">Em andamento</div></div>
+    <div class="card-stat c-concluida"><div class="num" id="stConcluidas">–</div><div class="rotulo">Concluídas</div></div>
+    <div class="card-stat c-cancelada"><div class="num" id="stCanceladas">–</div><div class="rotulo">Canceladas</div></div>
+    <div class="card-stat c-recorrente"><div class="num" id="stRecorrentes">–</div><div class="rotulo">🔁 Recorrentes</div></div>
+    <div class="card-stat c-concluida"><div class="num" id="stTaxa">–</div><div class="rotulo">Taxa de conclusão</div></div>
+  </div>
+
+  <div class="paineis">
+    <div class="painel">
+      <h2>🏘️ O.S. por bairro / cidade</h2>
+      <div id="porBairro"><div class="vazio">Carregando...</div></div>
+    </div>
+    <div class="painel">
+      <h2>🛠️ Por tipo de serviço</h2>
+      <div id="porTipo"><div class="vazio">Carregando...</div></div>
+    </div>
+    <div class="painel painel-largo">
+      <h2>🔁 Ruas mais recorrentes (buracos reincidentes)</h2>
+      <div id="recorrentes"><div class="vazio">Carregando...</div></div>
+    </div>
+    <div class="painel painel-largo">
+      <h2>🕐 Últimas O.S.</h2>
+      <div id="ultimas"><div class="vazio">Carregando...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function fmtData(d) {
+  if (!d) return '–';
+  const p = String(d).split('T')[0].split('-');
+  return `${p[2]}/${p[1]}/${p[0]}`;
+}
+function fmtDataHora(iso) {
+  if (!iso) return '–';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+}
+function labelStatus(s) {
+  return { aberta:'Aberta', andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
+}
+function urlMapa(os) {
+  const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
+  const q = m ? `${m[1]},${m[2]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
+  return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
+}
+
+function barras(contagens, total, classe) {
+  const max = contagens.length ? contagens[0][1] : 1;
+  return contagens.map(([nome, qtd]) => `
+    <div class="barra-linha">
+      <div class="barra-topo"><span>${esc(nome)}</span><span class="qtd">${qtd}</span></div>
+      <div class="barra-fundo"><div class="barra-fill ${classe||''}" style="width:${Math.max(3, Math.round(qtd/max*100))}%"></div></div>
+    </div>`).join('') || '<div class="vazio">Sem dados.</div>';
+}
+
+function render(ordens) {
+  const c = s => ordens.filter(o => o.status === s).length;
+  const total = ordens.length;
+  const recorrentes = ordens.filter(o => (o.ocorrencias||1) > 1);
+  document.getElementById('stTotal').textContent = total;
+  document.getElementById('stAbertas').textContent = c('aberta');
+  document.getElementById('stAndamento').textContent = c('andamento');
+  document.getElementById('stConcluidas').textContent = c('concluida');
+  document.getElementById('stCanceladas').textContent = c('cancelada');
+  document.getElementById('stRecorrentes').textContent = recorrentes.length;
+  document.getElementById('stTaxa').textContent = total ? Math.round(c('concluida')/total*100) + '%' : '–';
+
+  const agrupa = chave => {
+    const m = {};
+    ordens.forEach(o => { const k = (o[chave]||'').trim() || '(não informado)'; m[k] = (m[k]||0) + 1; });
+    return Object.entries(m).sort((a,b) => b[1]-a[1]);
+  };
+  document.getElementById('porBairro').innerHTML = barras(agrupa('bairro').slice(0,12), total, 'azul');
+  document.getElementById('porTipo').innerHTML = barras(agrupa('tipo').slice(0,10), total);
+
+  const topRec = recorrentes.sort((a,b) => (b.ocorrencias||0)-(a.ocorrencias||0)).slice(0,15);
+  document.getElementById('recorrentes').innerHTML = topRec.length ? `
+    <table>
+      <tr><th>O.S.</th><th>Endereço</th><th>Bairro</th><th>Ocorrências</th><th>Primeira</th><th>Status</th><th></th></tr>
+      ${topRec.map(o => `
+        <tr>
+          <td style="font-family:monospace;font-weight:700;color:var(--verde)">${esc(o.numero)}</td>
+          <td>${esc(o.endereco||'–')}</td>
+          <td>${esc(o.bairro||'–')}</td>
+          <td><span class="pill-rec">🔁 ${o.ocorrencias}x</span></td>
+          <td>${fmtData(o.primeiraOcorrencia)}</td>
+          <td><span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></td>
+          <td>${urlMapa(o) ? `<a class="link-mapa" href="${urlMapa(o)}" target="_blank">🗺️ Mapa</a>` : ''}</td>
+        </tr>`).join('')}
+    </table>` : '<div class="vazio">Nenhuma O.S. recorrente.</div>';
+
+  const ultimas = ordens.slice(0, 12);
+  document.getElementById('ultimas').innerHTML = ultimas.length ? `
+    <table>
+      <tr><th>O.S.</th><th>Descrição</th><th>Endereço</th><th>Aberta em</th><th>Status</th><th></th></tr>
+      ${ultimas.map(o => `
+        <tr>
+          <td style="font-family:monospace;font-weight:700;color:var(--verde)">${esc(o.numero)}</td>
+          <td>${esc((o.descricao||'').substring(0,60))}</td>
+          <td>${esc(o.endereco||'–')}${o.bairro ? ', ' + esc(o.bairro) : ''}</td>
+          <td>${fmtDataHora(o.criadoEm)}</td>
+          <td><span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></td>
+          <td>${urlMapa(o) ? `<a class="link-mapa" href="${urlMapa(o)}" target="_blank">🗺️ Mapa</a>` : ''}</td>
+        </tr>`).join('')}
+    </table>` : '<div class="vazio">Nenhuma O.S. cadastrada ainda.</div>';
+}
+
+async function carregar() {
+  try {
+    const r = await fetch('/api/ordens');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.erro || `Erro ${r.status}`);
+    }
+    document.getElementById('erro').innerHTML = '';
+    render(await r.json());
+    document.getElementById('atualizadoEm').textContent =
+      'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  } catch (e) {
+    document.getElementById('erro').innerHTML =
+      `<div class="erro-box">⚠️ Erro ao carregar dados: ${esc(e.message)}</div>`;
+  }
+}
+
+carregar();
+setInterval(carregar, 60000); // atualiza a cada minuto
+</script>
+</body>
+</html>

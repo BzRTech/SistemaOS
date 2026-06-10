@@ -439,6 +439,9 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#9aa"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" placeholder="Buscar por nº, local, descrição..." oninput="filtrarOS(this.value)" id="buscaInput">
   </div>
+  <select class="form-input" id="filtroBairro" onchange="setBairro(this.value)" style="margin-bottom:12px;padding:9px 32px 9px 13px;font-size:13px">
+    <option value="todos">🏘️ Todos os bairros</option>
+  </select>
   <div class="filter-chips">
     <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
     <div class="chip" onclick="setFiltro('aberta',this)">🔵 Abertas</div>
@@ -549,6 +552,9 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 
 <!-- ═══ RELATÓRIO ═══ -->
 <div class="section content" id="section-relatorio">
+  <a href="/dashboard.html" target="_blank" class="btn btn-primary" style="margin-bottom:12px;text-decoration:none">
+    📺 Abrir Dashboard completo
+  </a>
   <div class="form-card">
     <div class="form-card-title">📊 Resumo Geral</div>
     <div id="relatorioConteudo">
@@ -628,6 +634,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 const S = {
   ordens: [],
   filtro: 'todos',
+  bairroFiltro: 'todos',
   busca: '',
   fotoAbertura: null,   // base64
   fotoConclusaoModal: null,
@@ -684,6 +691,7 @@ async function carregarOS() {
     atualizarStats();
     return;
   }
+  popularFiltroBairro();
   renderLista();
   atualizarStats();
 }
@@ -762,6 +770,7 @@ function renderLista() {
   const container = document.getElementById('listaOS');
   let lista = S.ordens;
   if (S.filtro !== 'todos') lista = lista.filter(o => o.status === S.filtro);
+  if (S.bairroFiltro !== 'todos') lista = lista.filter(o => (o.bairro||'').trim() === S.bairroFiltro);
   if (S.busca.length > 1) {
     const q = S.busca.toLowerCase();
     lista = lista.filter(o =>
@@ -806,6 +815,7 @@ function renderLista() {
       <div class="os-fotos-row">
         <div class="foto-pill ${os.temFotoAbertura?'tem':'nao'}">📷 Abertura ${os.temFotoAbertura?'✓':'–'}</div>
         <div class="foto-pill ${os.temFotoConclusao?'tem':'nao'}">📸 Conclusão ${os.temFotoConclusao?'✓':'–'}</div>
+        ${os.endereco?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
       </div>
     </div>`).join('');
 }
@@ -817,7 +827,33 @@ function setFiltro(status, el) {
   el.classList.add('active');
   renderLista();
 }
+function setBairro(b) { S.bairroFiltro = b; renderLista(); }
 function filtrarOS(texto) { S.busca = texto; renderLista(); }
+
+function popularFiltroBairro() {
+  const sel = document.getElementById('filtroBairro');
+  if (!sel) return;
+  const bairros = [...new Set(S.ordens.map(o => (o.bairro||'').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt'));
+  if (!bairros.includes(S.bairroFiltro)) S.bairroFiltro = 'todos';
+  sel.innerHTML = '<option value="todos">🏘️ Todos os bairros</option>' +
+    bairros.map(b => `<option value="${b.replace(/"/g,'&quot;')}"${b===S.bairroFiltro?' selected':''}>${b}</option>`).join('');
+}
+
+// ── MAPA ──────────────────────────────────────────────────────────────────────
+function urlMapa(os) {
+  // usa coordenadas se a referência tiver (import com lat/long); senão, endereço
+  const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
+  const q = m ? `${m[1]},${m[2]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
+  return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
+}
+function abrirMapa(id, ev) {
+  if (ev) ev.stopPropagation();
+  const os = S.ordens.find(o => o.id === id) || S.osAberta;
+  const u = os && urlMapa(os);
+  if (u) window.open(u, '_blank');
+  else toast('⚠️ O.S. sem endereço para localizar.');
+}
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
 function atualizarStats() {
@@ -928,6 +964,7 @@ async function abrirDetalhes(id) {
         <div style="font-size:11px;font-weight:700;color:var(--cinza-texto);margin-bottom:5px;text-transform:uppercase">Descrição</div>
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}
+      ${os.endereco?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
     </div>
 
     <!-- FOTO ABERTURA -->
