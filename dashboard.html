@@ -7,6 +7,11 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
 :root {
+  /* paleta do brasão de João Pessoa */
+  --primaria: #c8102e;
+  --primaria-escura: #7f0a1c;
+  --primaria-clara: #fbe9ec;
+  --preto-brasao: #1d1d1f;
   --verde: #1a6e45;
   --verde-claro: #e8f5ee;
   --verde-medio: #2d9e65;
@@ -30,7 +35,7 @@ body {
   min-height: 100vh;
 }
 .topo {
-  background: var(--verde-escuro); color: white;
+  background: var(--primaria-escura); color: white;
   padding: 16px 28px;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   flex-wrap: wrap;
@@ -55,7 +60,7 @@ body {
 }
 .card-stat .num { font-size: 34px; font-weight: 800; line-height: 1.1; }
 .card-stat .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cinza-texto); margin-top: 4px; }
-.card-stat.c-total { border-top-color: var(--verde-escuro); }
+.card-stat.c-total { border-top-color: var(--primaria-escura); }
 .card-stat.c-aberta { border-top-color: var(--azul); }    .card-stat.c-aberta .num { color: var(--azul); }
 .card-stat.c-andamento { border-top-color: var(--amarelo); } .card-stat.c-andamento .num { color: var(--laranja); }
 .card-stat.c-concluida { border-top-color: var(--verde-medio); } .card-stat.c-concluida .num { color: var(--verde); }
@@ -69,9 +74,9 @@ body {
   box-shadow: var(--sombra);
 }
 .painel h2 {
-  font-size: 14px; font-weight: 700; color: var(--verde-escuro);
+  font-size: 14px; font-weight: 700; color: var(--primaria-escura);
   padding-bottom: 10px; margin-bottom: 14px;
-  border-bottom: 2px solid var(--verde-claro);
+  border-bottom: 2px solid var(--primaria-clara);
   display: flex; align-items: center; gap: 8px;
 }
 .painel-largo { grid-column: 1 / -1; }
@@ -80,7 +85,7 @@ body {
 .barra-topo { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
 .barra-topo .qtd { font-weight: 700; }
 .barra-fundo { height: 9px; background: var(--cinza-bg); border-radius: 5px; overflow: hidden; }
-.barra-fill { height: 100%; background: var(--verde); border-radius: 5px; }
+.barra-fill { height: 100%; background: var(--primaria); border-radius: 5px; }
 .barra-fill.azul { background: var(--azul); }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -216,7 +221,7 @@ function render(ordens) {
       <tr><th>O.S.</th><th>Endereço</th><th>Bairro</th><th>Ocorrências</th><th>Primeira</th><th>Status</th><th></th></tr>
       ${topRec.map(o => `
         <tr>
-          <td style="font-family:monospace;font-weight:700;color:var(--verde)">${esc(o.numero)}</td>
+          <td style="font-family:monospace;font-weight:700;color:var(--primaria)">${esc(o.numero)}</td>
           <td>${esc(o.endereco||'–')}</td>
           <td>${esc(o.bairro||'–')}</td>
           <td><span class="pill-rec">🔁 ${o.ocorrencias}x</span></td>
@@ -232,7 +237,7 @@ function render(ordens) {
       <tr><th>O.S.</th><th>Descrição</th><th>Endereço</th><th>Aberta em</th><th>Status</th><th></th></tr>
       ${ultimas.map(o => `
         <tr>
-          <td style="font-family:monospace;font-weight:700;color:var(--verde)">${esc(o.numero)}</td>
+          <td style="font-family:monospace;font-weight:700;color:var(--primaria)">${esc(o.numero)}</td>
           <td>${esc((o.descricao||'').substring(0,60))}</td>
           <td>${esc(o.endereco||'–')}${o.bairro ? ', ' + esc(o.bairro) : ''}</td>
           <td>${fmtDataHora(o.criadoEm)}</td>

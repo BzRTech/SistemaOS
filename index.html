@@ -7,6 +7,11 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
 :root {
+  /* paleta do brasão de João Pessoa: vermelho, branco e preto */
+  --primaria: #c8102e;
+  --primaria-escura: #7f0a1c;
+  --primaria-clara: #fbe9ec;
+  --preto-brasao: #1d1d1f;
   --verde: #1a6e45;
   --verde-claro: #e8f5ee;
   --verde-medio: #2d9e65;
@@ -38,7 +43,7 @@ body {
 
 /* HEADER */
 .header {
-  background: var(--verde-escuro);
+  background: var(--primaria-escura);
   color: white;
   padding: 14px 16px;
   position: sticky; top: 0; z-index: 100;
@@ -48,7 +53,7 @@ body {
 .header-left { display: flex; align-items: center; gap: 10px; }
 .header-logo {
   width: 38px; height: 38px;
-  background: var(--verde-medio);
+  background: var(--preto-brasao);
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   font-size: 20px;
@@ -64,7 +69,7 @@ body {
 /* STATS BAR */
 .stats-bar {
   display: grid; grid-template-columns: repeat(4, 1fr);
-  background: var(--verde-escuro);
+  background: var(--primaria-escura);
   padding: 0 12px 14px; gap: 8px;
 }
 .stat-item {
@@ -91,7 +96,7 @@ body {
   transition: all 0.2s; white-space: nowrap;
   display: flex; align-items: center; justify-content: center; gap: 5px;
 }
-.nav-tab.active { color: var(--verde); border-bottom-color: var(--verde); }
+.nav-tab.active { color: var(--primaria); border-bottom-color: var(--primaria); }
 .nav-tab:hover { background: var(--cinza-bg); }
 
 /* CONTENT */
@@ -114,7 +119,7 @@ body {
 .os-card.cancelada { border-left-color: var(--vermelho); }
 
 .os-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
-.os-numero { font-size: 12px; font-weight: 700; color: var(--verde); font-family: monospace; }
+.os-numero { font-size: 12px; font-weight: 700; color: var(--primaria); font-family: monospace; }
 .os-badge {
   font-size: 10px; font-weight: 700;
   padding: 3px 8px; border-radius: 20px;
@@ -146,9 +151,9 @@ body {
   padding: 18px; margin-bottom: 12px; box-shadow: var(--sombra);
 }
 .form-card-title {
-  font-size: 13px; font-weight: 700; color: var(--verde-escuro);
+  font-size: 13px; font-weight: 700; color: var(--primaria-escura);
   margin-bottom: 14px; padding-bottom: 10px;
-  border-bottom: 2px solid var(--verde-claro);
+  border-bottom: 2px solid var(--primaria-clara);
   display: flex; align-items: center; gap: 8px;
 }
 .form-group { margin-bottom: 13px; }
@@ -164,7 +169,7 @@ body {
   font-size: 14px; color: var(--cinza-escuro); background: white;
   transition: border-color 0.2s; -webkit-appearance: none; appearance: none;
 }
-.form-input:focus { outline: none; border-color: var(--verde-medio); }
+.form-input:focus { outline: none; border-color: var(--primaria); }
 .form-input[readonly] { background: #f9fafb; color: var(--cinza-texto); }
 select.form-input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6473' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
@@ -178,7 +183,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   padding: 20px 16px; text-align: center; cursor: pointer;
   transition: all 0.2s; background: white;
 }
-.foto-upload-area:hover, .foto-upload-area:active { border-color: var(--verde-medio); background: var(--verde-claro); }
+.foto-upload-area:hover, .foto-upload-area:active { border-color: var(--primaria); background: var(--primaria-clara); }
 .foto-upload-icon { font-size: 32px; margin-bottom: 6px; }
 .foto-upload-text { font-size: 13px; color: var(--cinza-escuro); font-weight: 600; }
 .foto-upload-sub { font-size: 11px; color: var(--cinza-texto); margin-top: 3px; }
@@ -204,8 +209,8 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   transition: all 0.15s; letter-spacing: 0.2px;
 }
 .btn:active { transform: scale(0.97); }
-.btn-primary { background: var(--verde); color: white; }
-.btn-primary:hover { background: var(--verde-escuro); }
+.btn-primary { background: var(--primaria); color: white; }
+.btn-primary:hover { background: var(--primaria-escura); }
 .btn-secondary { background: var(--cinza-bg); color: var(--cinza-escuro); border: 1.5px solid var(--cinza-borda); }
 .btn-danger { background: var(--vermelho-claro); color: var(--vermelho); border: 1.5px solid #f5c6c6; }
 .btn-warning { background: #fff3cd; color: #856404; border: 1.5px solid #ffc107; }
@@ -237,7 +242,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 }
 .modal-overlay.open { display: block; }
 .modal-header {
-  background: var(--verde-escuro); color: white;
+  background: var(--primaria-escura); color: white;
   padding: 14px 16px;
   display: flex; align-items: center; gap: 12px;
   position: sticky; top: 0; z-index: 10;
@@ -293,15 +298,15 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   border: 1.5px solid var(--cinza-borda); background: white;
   cursor: pointer; transition: all 0.15s; color: var(--cinza-texto); flex-shrink: 0;
 }
-.chip.active { background: var(--verde-escuro); color: white; border-color: var(--verde-escuro); }
+.chip.active { background: var(--primaria-escura); color: white; border-color: var(--primaria-escura); }
 
 /* FAB */
 .fab {
   position: fixed; bottom: 22px; right: 22px;
   width: 56px; height: 56px; border-radius: 50%;
-  background: var(--verde); color: white;
+  background: var(--primaria); color: white;
   border: none; font-size: 28px; cursor: pointer;
-  box-shadow: 0 4px 16px rgba(26,110,69,0.5);
+  box-shadow: 0 4px 16px rgba(200,16,46,0.45);
   display: flex; align-items: center; justify-content: center;
   z-index: 50; transition: all 0.2s;
 }
@@ -368,7 +373,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 .spinner {
   width: 30px; height: 30px; margin: 0 auto 10px;
   border: 3px solid var(--cinza-borda);
-  border-top-color: var(--verde);
+  border-top-color: var(--primaria);
   border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -603,7 +608,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       </datalist>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;cursor:pointer">
-      <input type="checkbox" id="chkAgruparCSV" checked onchange="reprocessarCSV()" style="width:17px;height:17px;accent-color:var(--verde)">
+      <input type="checkbox" id="chkAgruparCSV" checked onchange="reprocessarCSV()" style="width:17px;height:17px;accent-color:var(--primaria)">
       Agrupar linhas repetidas do mesmo endereço em uma única O.S. (recomendado)
     </label>
     <div id="importPreview" style="margin-top:12px"></div>
@@ -1215,7 +1220,7 @@ function renderRelatorio() {
   const total = S.ordens.length;
   if (!total) { el.innerHTML = '<p style="color:var(--cinza-texto);font-size:13px">Nenhuma O.S. cadastrada.</p>'; return; }
   const c = s => S.ordens.filter(o => o.status === s).length;
-  const pct = v => `<div style="height:7px;background:var(--cinza-bg);border-radius:4px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.round(v/total*100)}%;background:var(--verde);border-radius:4px"></div></div>`;
+  const pct = v => `<div style="height:7px;background:var(--cinza-bg);border-radius:4px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.round(v/total*100)}%;background:var(--primaria);border-radius:4px"></div></div>`;
 
   const porTipo = {};
   S.ordens.forEach(o => { porTipo[o.tipo||'Outros'] = (porTipo[o.tipo||'Outros']||0)+1; });
