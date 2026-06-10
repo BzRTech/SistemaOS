@@ -71,9 +71,33 @@ async function iniciarBanco() {
       r record;
       v jsonb;
     BEGIN
-      SELECT data_type INTO coltype
-      FROM information_schema.columns
-      WHERE table_name = 'ordens_servico' AND column_name = 'historico';
+      -- Fotos no esquema antigo eram arrays JSONB (fotos_abertura etc.);
+      -- converte para TEXT preservando a primeira foto
+      FOR r IN
+        SELECT attname AS col, format_type(atttypid, atttypmod) AS tipo
+        FROM pg_attribute
+        WHERE attrelid = 'ordens_servico'::regclass
+          AND attname IN ('foto_abertura', 'foto_conclusao')
+          AND NOT attisdropped
+          AND format_type(atttypid, atttypmod) IN ('json', 'jsonb')
+      LOOP
+        RAISE NOTICE 'Migrando % de % para text', r.col, r.tipo;
+        EXECUTE format('ALTER TABLE ordens_servico ALTER COLUMN %I DROP DEFAULT', r.col);
+        EXECUTE format(
+          'ALTER TABLE ordens_servico ALTER COLUMN %I TYPE text USING (
+             CASE
+               WHEN %I IS NULL THEN NULL
+               WHEN jsonb_typeof(%I::jsonb) = ''array''  THEN %I::jsonb ->> 0
+               WHEN jsonb_typeof(%I::jsonb) = ''string'' THEN %I::jsonb #>> ''{}''
+               ELSE NULL
+             END)',
+          r.col, r.col, r.col, r.col, r.col, r.col);
+      END LOOP;
+
+      SELECT format_type(atttypid, atttypmod) INTO coltype
+      FROM pg_attribute
+      WHERE attrelid = 'ordens_servico'::regclass
+        AND attname = 'historico' AND NOT attisdropped;
 
       IF coltype IS NOT NULL AND coltype <> 'jsonb' THEN
         RAISE NOTICE 'Migrando historico de % para jsonb', coltype;
@@ -158,6 +182,20 @@ app.get('/api/ping', async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
+// Inspeção do esquema real do banco (depuração de produção)
+app.get('/api/diagnostico', async (req, res) => {
+  try {
+    const colunas = await pool.query(`
+      SELECT attname AS coluna, format_type(atttypid, atttypmod) AS tipo
+      FROM pg_attribute
+      WHERE attrelid = 'ordens_servico'::regclass AND attnum > 0 AND NOT attisdropped
+      ORDER BY attnum
+    `);
+    const total = await pool.query('SELECT COUNT(*)::int AS n FROM ordens_servico');
+    res.json({ ok: true, totalOrdens: total.rows[0].n, colunas: colunas.rows });
+  } catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
+});
+
 app.get('/api/proximo-numero', async (req, res) => {
   try {
     const ano = new Date().getFullYear();
@@ -170,8 +208,8 @@ app.get('/api/ordens', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
-             (foto_abertura  IS NOT NULL AND foto_abertura  <> '') AS tem_abertura,
-             (foto_conclusao IS NOT NULL AND foto_conclusao <> '') AS tem_conclusao,
+             (foto_abertura  IS NOT NULL AND foto_abertura::text  <> '') AS tem_abertura,
+             (foto_conclusao IS NOT NULL AND foto_conclusao::text <> '') AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `);
