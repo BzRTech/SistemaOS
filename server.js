@@ -41,6 +41,7 @@ async function iniciarBanco() {
       status          TEXT DEFAULT 'aberta',
       ocorrencias     INTEGER DEFAULT 1,
       primeira_ocorrencia DATE,
+      tag             TEXT DEFAULT '',
       foto_abertura   TEXT,
       foto_conclusao  TEXT,
       historico       JSONB DEFAULT '[]',
@@ -53,6 +54,7 @@ async function iniciarBanco() {
   // Migração: colunas novas em bancos existentes
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS ocorrencias INTEGER DEFAULT 1`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS primeira_ocorrencia DATE`);
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS tag TEXT DEFAULT ''`);
 
   // Migração: renomeia colunas antigas se existirem
   const renames = [
@@ -176,6 +178,7 @@ function mapRow(r, incluirFotos) {
     prioridade: r.prioridade, prazo: r.prazo, status: r.status,
     ocorrencias: r.ocorrencias || 1,
     primeiraOcorrencia: r.primeira_ocorrencia,
+    tag: r.tag || '',
     temFotoAbertura: !!r.foto_abertura,
     temFotoConclusao: !!r.foto_conclusao,
     fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
@@ -216,7 +219,7 @@ app.get('/api/ordens', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
-             ocorrencias, primeira_ocorrencia,
+             ocorrencias, primeira_ocorrencia, tag,
              (foto_abertura  IS NOT NULL AND foto_abertura::text  <> '') AS tem_abertura,
              (foto_conclusao IS NOT NULL AND foto_conclusao::text <> '') AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
@@ -241,7 +244,7 @@ app.get('/api/ordens/:id', async (req, res) => {
 const COLUNAS_INSERT = `
   id, numero, tipo, descricao, endereco, bairro, referencia,
   solicitante, responsavel, equipe, prioridade, prazo, status,
-  ocorrencias, primeira_ocorrencia, foto_abertura, historico, criado_em`;
+  ocorrencias, primeira_ocorrencia, tag, foto_abertura, historico, criado_em`;
 
 function valoresInsert(o, numero, criadoEm) {
   const data = criadoEm || new Date().toISOString();
@@ -255,6 +258,7 @@ function valoresInsert(o, numero, criadoEm) {
     o.prioridade || 'media', o.prazo || null, 'aberta',
     Math.max(1, parseInt(o.ocorrencias, 10) || 1),
     validarData(o.primeiraOcorrencia) ? o.primeiraOcorrencia : null,
+    (o.tag || '').toString().trim().slice(0, 40),
     o.fotoAbertura || null, historico, data,
   ];
 }
@@ -318,7 +322,7 @@ app.post('/api/ordens/importar', async (req, res) => {
         const item = {
           ...o,
           solicitante: (o.solicitante && String(o.solicitante).trim()) || 'Importação CSV',
-          obsAbertura: 'Importada via CSV',
+          obsAbertura: 'Importada via CSV' + (o.tag ? ` — ${String(o.tag).trim()}` : ''),
         };
         const vals = valoresInsert(item, numero, validarData(o.criadoEm));
         const base = params.length;
