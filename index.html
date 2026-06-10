@@ -416,9 +416,68 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   .stats-bar { grid-template-columns: repeat(2, 1fr); }
   .stat-num { font-size: 20px; }
 }
+
+/* LOGIN */
+.login-screen {
+  position: fixed; inset: 0; z-index: 1000;
+  background: linear-gradient(160deg, var(--primaria-escura) 0%, var(--primaria) 100%);
+  display: none; align-items: center; justify-content: center; padding: 20px;
+}
+.login-screen.show { display: flex; }
+.login-box {
+  background: white; border-radius: 18px; padding: 30px 26px;
+  width: 100%; max-width: 380px; box-shadow: 0 18px 50px rgba(0,0,0,0.35);
+}
+.login-logo {
+  width: 62px; height: 62px; border-radius: 16px; margin: 0 auto 14px;
+  background: var(--preto-brasao); display: flex; align-items: center; justify-content: center;
+  font-size: 30px;
+}
+.login-box h1 { font-size: 19px; text-align: center; color: var(--preto-brasao); }
+.login-box .login-sub { font-size: 12px; text-align: center; color: var(--cinza-texto); margin: 4px 0 22px; }
+.login-erro {
+  background: var(--vermelho-claro); color: var(--vermelho);
+  font-size: 13px; font-weight: 600; padding: 10px 14px; border-radius: 9px; margin-bottom: 14px;
+  display: none;
+}
+.user-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.14); color: white;
+  font-size: 12px; font-weight: 600; padding: 7px 11px; border-radius: 9px;
+  max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.usuario-linha {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 0; border-bottom: 1px solid var(--cinza-borda); font-size: 13px;
+}
+.usuario-linha:last-child { border-bottom: none; }
+.usuario-linha .u-login { color: var(--cinza-texto); font-size: 12px; }
+.btn-mini-excluir {
+  background: var(--vermelho-claro); color: var(--vermelho); border: none;
+  padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
 </style>
 </head>
 <body>
+
+<!-- ═══ LOGIN ═══ -->
+<div class="login-screen" id="loginScreen">
+  <form class="login-box" onsubmit="fazerLogin(event)">
+    <div class="login-logo">🏗️</div>
+    <h1>Gestão de O.S.</h1>
+    <div class="login-sub">Secretaria de Infraestrutura — acesso restrito</div>
+    <div class="login-erro" id="loginErro"></div>
+    <div class="form-group">
+      <label class="form-label">Usuário</label>
+      <input class="form-input" type="text" id="loginUsuario" autocomplete="username" autocapitalize="none" placeholder="seu.usuario" required>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Senha</label>
+      <input class="form-input" type="password" id="loginSenha" autocomplete="current-password" placeholder="••••••••" required>
+    </div>
+    <button class="btn btn-primary" type="submit" id="btnLogin">🔓 Entrar</button>
+  </form>
+</div>
 
 <!-- HEADER -->
 <header class="header">
@@ -429,9 +488,11 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <div class="header-sub">Secretaria de Infraestrutura</div>
     </div>
   </div>
-  <div style="display:flex;gap:8px">
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="user-chip" id="userChip" style="display:none">👤 <span id="userChipNome"></span></span>
     <a class="btn-config" href="/dashboard.html" target="_blank" title="Dashboard" style="text-decoration:none">📊</a>
     <button class="btn-config" onclick="toggleConfig()" title="Configurações">⚙️</button>
+    <button class="btn-config" onclick="fazerLogout()" title="Sair">🚪</button>
   </div>
 </header>
 
@@ -652,7 +713,28 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div style="padding:12px;background:var(--azul-claro);border-radius:var(--radius-sm);font-size:12px;color:var(--azul);margin-bottom:16px">
       ℹ️ Configure a variável <strong>DATABASE_URL</strong> no arquivo <strong>.env</strong> no servidor com a connection string do Neon Database.
     </div>
-    <button class="btn btn-secondary" onclick="toggleConfig()" style="margin-top:12px">Fechar</button>
+
+    <div class="divider-label">🔑 Minha conta</div>
+    <div class="form-group">
+      <label class="form-label">Senha atual</label>
+      <input class="form-input" type="password" id="senhaAtual" autocomplete="current-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nova senha</label>
+      <input class="form-input" type="password" id="senhaNova" autocomplete="new-password" placeholder="Mínimo 4 caracteres">
+    </div>
+    <button class="btn btn-secondary" onclick="alterarSenha()" style="margin-bottom:16px">🔒 Alterar minha senha</button>
+
+    <div class="divider-label">👥 Usuários do sistema</div>
+    <div id="listaUsuarios" style="margin-bottom:12px;font-size:13px;color:var(--cinza-texto)">Carregando...</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <input class="form-input" type="text" id="novoUsuarioLogin" placeholder="usuario" autocapitalize="none">
+      <input class="form-input" type="text" id="novoUsuarioNome" placeholder="Nome completo">
+    </div>
+    <input class="form-input" type="password" id="novoUsuarioSenha" placeholder="Senha (mín. 4 caracteres)" autocomplete="new-password" style="margin-top:8px">
+    <button class="btn btn-success" onclick="criarUsuario()" style="margin-top:8px">➕ Adicionar usuário</button>
+
+    <button class="btn btn-secondary" onclick="toggleConfig()" style="margin-top:16px">Fechar</button>
   </div>
 </div>
 
@@ -672,11 +754,160 @@ const S = {
   osAberta: null,       // OS carregada no modal
 };
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
+// ── AUTENTICAÇÃO ──────────────────────────────────────────────────────────────
+function getToken() { return localStorage.getItem('os_token') || ''; }
+
+// fetch com token; em 401 derruba para a tela de login
+async function apiFetch(url, opts = {}) {
+  const r = await fetch(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + getToken() },
+  });
+  if (r.status === 401) {
+    localStorage.removeItem('os_token');
+    mostrarLogin();
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
+  return r;
+}
+
+function mostrarLogin() {
+  document.getElementById('loginScreen').classList.add('show');
+  document.getElementById('userChip').style.display = 'none';
+  setTimeout(() => document.getElementById('loginUsuario').focus(), 100);
+}
+
+function entrarNoSistema(nome) {
+  document.getElementById('loginScreen').classList.remove('show');
+  document.getElementById('loginSenha').value = '';
+  document.getElementById('loginErro').style.display = 'none';
+  const chip = document.getElementById('userChip');
+  chip.style.display = 'flex';
+  document.getElementById('userChipNome').textContent = nome || 'Usuário';
   carregarOS();
   buscarProximoNumero();
   testarConexaoSilencioso();
+}
+
+async function fazerLogin(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('btnLogin');
+  const erroEl = document.getElementById('loginErro');
+  btn.disabled = true;
+  btn.textContent = '⏳ Entrando...';
+  erroEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        usuario: document.getElementById('loginUsuario').value.trim(),
+        senha: document.getElementById('loginSenha').value,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+    localStorage.setItem('os_token', d.token);
+    localStorage.setItem('os_nome', d.nome);
+    entrarNoSistema(d.nome);
+  } catch (e) {
+    erroEl.textContent = '⚠️ ' + e.message;
+    erroEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔓 Entrar';
+  }
+}
+
+async function fazerLogout() {
+  if (!confirm('Sair do sistema?')) return;
+  try { await apiFetch('/api/logout', { method: 'POST' }); } catch {}
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_nome');
+  S.ordens = [];
+  mostrarLogin();
+}
+
+async function alterarSenha() {
+  const atual = document.getElementById('senhaAtual').value;
+  const nova = document.getElementById('senhaNova').value;
+  if (!nova || nova.length < 4) { toast('⚠️ Nova senha deve ter pelo menos 4 caracteres', 3000); return; }
+  try {
+    const r = await apiFetch('/api/senha', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senhaAtual: atual, novaSenha: nova }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+    document.getElementById('senhaAtual').value = '';
+    document.getElementById('senhaNova').value = '';
+    toast('🔒 Senha alterada com sucesso!');
+  } catch (e) { toast('❌ ' + e.message, 3000); }
+}
+
+async function carregarUsuarios() {
+  const el = document.getElementById('listaUsuarios');
+  try {
+    const r = await apiFetch('/api/usuarios');
+    if (!r.ok) throw new Error();
+    const usuarios = await r.json();
+    el.innerHTML = usuarios.map(u => `
+      <div class="usuario-linha">
+        <div>👤 <strong>${escHtml(u.nome)}</strong> <span class="u-login">(${escHtml(u.usuario)})</span></div>
+        <button class="btn-mini-excluir" onclick="removerUsuario('${u.id}', '${escHtml(u.usuario)}')">Remover</button>
+      </div>`).join('');
+  } catch { el.textContent = 'Não foi possível carregar os usuários.'; }
+}
+
+async function criarUsuario() {
+  const usuario = document.getElementById('novoUsuarioLogin').value.trim();
+  const nome = document.getElementById('novoUsuarioNome').value.trim();
+  const senha = document.getElementById('novoUsuarioSenha').value;
+  if (!usuario || !senha) { toast('⚠️ Preencha usuário e senha', 3000); return; }
+  try {
+    const r = await apiFetch('/api/usuarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario, nome, senha }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+    ['novoUsuarioLogin','novoUsuarioNome','novoUsuarioSenha'].forEach(id => document.getElementById(id).value = '');
+    toast(`✅ Usuário ${d.usuario} criado!`);
+    carregarUsuarios();
+  } catch (e) { toast('❌ ' + e.message, 3000); }
+}
+
+async function removerUsuario(id, usuario) {
+  if (!confirm(`Remover o usuário "${usuario}"?`)) return;
+  try {
+    const r = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+    toast('🗑️ Usuário removido.');
+    carregarUsuarios();
+  } catch (e) { toast('❌ ' + e.message, 3000); }
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  if (!getToken()) { mostrarLogin(); return; }
+  try {
+    const r = await apiFetch('/api/me');
+    if (!r.ok) throw new Error();
+    const me = await r.json();
+    localStorage.setItem('os_nome', me.nome);
+    entrarNoSistema(me.nome);
+  } catch {
+    // apiFetch já mostrou o login em caso de 401; outros erros (rede) seguem com o token salvo
+    if (getToken()) entrarNoSistema(localStorage.getItem('os_nome'));
+  }
 });
 
 // ── NAVEGAÇÃO ─────────────────────────────────────────────────────────────────
@@ -693,7 +924,7 @@ function showSection(id) {
 // ── NÚMERO OS ─────────────────────────────────────────────────────────────────
 async function buscarProximoNumero() {
   try {
-    const r = await fetch('/api/proximo-numero');
+    const r = await apiFetch('/api/proximo-numero');
     if (r.ok) {
       const d = await r.json();
       document.getElementById('novaNumero').value = d.numero;
@@ -706,7 +937,7 @@ async function carregarOS() {
   const container = document.getElementById('listaOS');
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Carregando...</p></div>';
   try {
-    const r = await fetch('/api/ordens');
+    const r = await apiFetch('/api/ordens');
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.erro || `Erro ${r.status}`);
@@ -729,7 +960,7 @@ async function carregarOS() {
 
 async function carregarOSCompleta(id) {
   try {
-    const r = await fetch(`/api/ordens/${id}`);
+    const r = await apiFetch(`/api/ordens/${id}`);
     if (!r.ok) throw new Error();
     return await r.json();
   } catch {
@@ -944,7 +1175,7 @@ async function salvarNovaOS() {
   };
 
   try {
-    const r = await fetch('/api/ordens', {
+    const r = await apiFetch('/api/ordens', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(os),
@@ -1171,7 +1402,7 @@ async function adicionarFotoNaOS(input, tipo) {
 
 async function atualizarOS(id, body) {
   try {
-    const r = await fetch(`/api/ordens/${id}`, {
+    const r = await apiFetch(`/api/ordens/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1194,7 +1425,7 @@ async function excluirOS() {
   const id = S.osAberta?.id;
   if (!id) return;
   try {
-    await fetch(`/api/ordens/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/ordens/${id}`, { method: 'DELETE' });
   } catch {}
   S.ordens = S.ordens.filter(o => o.id !== id);
   salvarLocal();
@@ -1466,7 +1697,7 @@ async function confirmarImportCSV() {
   btn.disabled = true;
   btn.textContent = '⏳ Importando...';
   try {
-    const r = await fetch('/api/ordens/importar', {
+    const r = await apiFetch('/api/ordens/importar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ordens: csvOrdensParaImportar }),
@@ -1509,7 +1740,8 @@ function exportarCSV() {
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 function toggleConfig() {
-  document.getElementById('configPanel').classList.toggle('open');
+  const aberto = document.getElementById('configPanel').classList.toggle('open');
+  if (aberto) carregarUsuarios();
 }
 function closeConfigBg(e) {
   if (e.target === document.getElementById('configPanel')) toggleConfig();

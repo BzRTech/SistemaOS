@@ -249,7 +249,10 @@ function render(ordens) {
 
 async function carregar() {
   try {
-    const r = await fetch('/api/ordens');
+    const token = localStorage.getItem('os_token');
+    if (!token) { window.location.href = '/'; return; }
+    const r = await fetch('/api/ordens', { headers: { Authorization: 'Bearer ' + token } });
+    if (r.status === 401) { window.location.href = '/'; return; }
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.erro || `Erro ${r.status}`);

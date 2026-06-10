@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
@@ -145,8 +146,160 @@ async function iniciarBanco() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_criado_em ON ordens_servico (criado_em DESC)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id          TEXT PRIMARY KEY,
+      usuario     TEXT UNIQUE NOT NULL,
+      nome        TEXT NOT NULL,
+      senha_hash  TEXT NOT NULL,
+      criado_em   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessoes (
+      token       TEXT PRIMARY KEY,
+      usuario_id  TEXT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      criado_em   TIMESTAMPTZ DEFAULT NOW(),
+      expira_em   TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes (expira_em)`);
+
+  // Usuário inicial: admin / ADMIN_SENHA (padrão "admin123" — troque depois!)
+  const { rows: [{ n }] } = await pool.query('SELECT COUNT(*)::int AS n FROM usuarios');
+  if (n === 0) {
+    const senha = process.env.ADMIN_SENHA || 'admin123';
+    await pool.query(
+      'INSERT INTO usuarios (id, usuario, nome, senha_hash) VALUES ($1, $2, $3, $4)',
+      [uuidv4(), 'admin', 'Administrador', hashSenha(senha)]
+    );
+    console.log('Usuário inicial criado: admin' + (process.env.ADMIN_SENHA ? '' : ' (senha padrão "admin123" — altere no primeiro acesso!)'));
+  }
+
   console.log('Banco de dados pronto!');
 }
+
+// ── AUTENTICAÇÃO ──────────────────────────────────────────────────────────────
+const SESSAO_DIAS = 30;
+
+function hashSenha(senha, salt) {
+  salt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(senha), salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verificaSenha(senha, armazenada) {
+  const [salt, hash] = String(armazenada || '').split(':');
+  if (!salt || !hash) return false;
+  const calc = crypto.scryptSync(String(senha), salt, 64).toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(calc, 'hex'));
+}
+
+async function autenticar(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!token) return res.status(401).json({ erro: 'Não autenticado' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.token, u.id, u.usuario, u.nome
+       FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+       WHERE s.token = $1 AND s.expira_em > NOW()`,
+      [token]
+    );
+    if (!rows.length) return res.status(401).json({ erro: 'Sessão expirada' });
+    req.usuario = { id: rows[0].id, usuario: rows[0].usuario, nome: rows[0].nome };
+    req.token = token;
+    next();
+  } catch (e) {
+    console.error('autenticar:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
+}
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { usuario, senha } = req.body || {};
+    if (!usuario || !senha) return res.status(400).json({ erro: 'Informe usuário e senha' });
+    const { rows } = await pool.query(
+      'SELECT * FROM usuarios WHERE LOWER(usuario) = LOWER($1)', [String(usuario).trim()]
+    );
+    if (!rows.length || !verificaSenha(senha, rows[0].senha_hash)) {
+      return res.status(401).json({ erro: 'Usuário ou senha inválidos' });
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    await pool.query(
+      `INSERT INTO sessoes (token, usuario_id, expira_em)
+       VALUES ($1, $2, NOW() + make_interval(days => $3))`,
+      [token, rows[0].id, SESSAO_DIAS]
+    );
+    // aproveita para limpar sessões vencidas
+    pool.query('DELETE FROM sessoes WHERE expira_em < NOW()').catch(() => {});
+    res.json({ token, usuario: rows[0].usuario, nome: rows[0].nome });
+  } catch (e) { console.error('POST /api/login:', e.message); res.status(500).json({ erro: e.message }); }
+});
+
+app.post('/api/logout', autenticar, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM sessoes WHERE token = $1', [req.token]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+app.get('/api/me', autenticar, (req, res) => res.json(req.usuario));
+
+app.put('/api/senha', autenticar, async (req, res) => {
+  try {
+    const { senhaAtual, novaSenha } = req.body || {};
+    if (!novaSenha || String(novaSenha).length < 4) {
+      return res.status(400).json({ erro: 'Nova senha deve ter pelo menos 4 caracteres' });
+    }
+    const { rows } = await pool.query('SELECT senha_hash FROM usuarios WHERE id = $1', [req.usuario.id]);
+    if (!verificaSenha(senhaAtual, rows[0].senha_hash)) {
+      return res.status(401).json({ erro: 'Senha atual incorreta' });
+    }
+    await pool.query('UPDATE usuarios SET senha_hash = $1 WHERE id = $2', [hashSenha(novaSenha), req.usuario.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error('PUT /api/senha:', e.message); res.status(500).json({ erro: e.message }); }
+});
+
+app.get('/api/usuarios', autenticar, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, usuario, nome, criado_em FROM usuarios ORDER BY criado_em');
+    res.json(rows.map(u => ({ id: u.id, usuario: u.usuario, nome: u.nome, criadoEm: u.criado_em })));
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+app.post('/api/usuarios', autenticar, async (req, res) => {
+  try {
+    const { usuario, nome, senha } = req.body || {};
+    const u = String(usuario || '').trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,30}$/.test(u)) {
+      return res.status(400).json({ erro: 'Usuário deve ter 3-30 caracteres (letras, números, ponto, hífen)' });
+    }
+    if (!senha || String(senha).length < 4) {
+      return res.status(400).json({ erro: 'Senha deve ter pelo menos 4 caracteres' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO usuarios (id, usuario, nome, senha_hash) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (usuario) DO NOTHING RETURNING id, usuario, nome`,
+      [uuidv4(), u, String(nome || u).trim(), hashSenha(senha)]
+    );
+    if (!rows.length) return res.status(409).json({ erro: 'Usuário já existe' });
+    res.json(rows[0]);
+  } catch (e) { console.error('POST /api/usuarios:', e.message); res.status(500).json({ erro: e.message }); }
+});
+
+app.delete('/api/usuarios/:id', autenticar, async (req, res) => {
+  try {
+    if (req.params.id === req.usuario.id) {
+      return res.status(400).json({ erro: 'Você não pode remover seu próprio usuário' });
+    }
+    const { rows: [{ n }] } = await pool.query('SELECT COUNT(*)::int AS n FROM usuarios');
+    if (n <= 1) return res.status(400).json({ erro: 'Não é possível remover o último usuário' });
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
 
 // Próximo número sequencial do ano. Recebe um client para poder rodar
 // dentro de uma transação (importação em lote).
@@ -194,7 +347,7 @@ app.get('/api/ping', async (req, res) => {
 });
 
 // Inspeção do esquema real do banco (depuração de produção)
-app.get('/api/diagnostico', async (req, res) => {
+app.get('/api/diagnostico', autenticar, async (req, res) => {
   try {
     const colunas = await pool.query(`
       SELECT attname AS coluna, format_type(atttypid, atttypmod) AS tipo
@@ -207,14 +360,14 @@ app.get('/api/diagnostico', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
-app.get('/api/proximo-numero', async (req, res) => {
+app.get('/api/proximo-numero', autenticar, async (req, res) => {
   try {
     const ano = new Date().getFullYear();
     res.json({ numero: fmtNumero(ano, await gerarNumeroOS(pool, ano)) });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens', async (req, res) => {
+app.get('/api/ordens', autenticar, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
@@ -233,7 +386,7 @@ app.get('/api/ordens', async (req, res) => {
   } catch (e) { console.error('GET /api/ordens:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens/:id', async (req, res) => {
+app.get('/api/ordens/:id', autenticar, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
@@ -263,7 +416,7 @@ function valoresInsert(o, numero, criadoEm) {
   ];
 }
 
-app.post('/api/ordens', async (req, res) => {
+app.post('/api/ordens', autenticar, async (req, res) => {
   const client = await pool.connect();
   try {
     const o = req.body;
@@ -293,7 +446,7 @@ app.post('/api/ordens', async (req, res) => {
 });
 
 // Importação em lote (CSV processado no frontend)
-app.post('/api/ordens/importar', async (req, res) => {
+app.post('/api/ordens/importar', autenticar, async (req, res) => {
   const lista = req.body && req.body.ordens;
   if (!Array.isArray(lista) || !lista.length) {
     return res.status(400).json({ erro: 'Envie { ordens: [...] } com pelo menos 1 item' });
@@ -352,7 +505,7 @@ function validarData(v) {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-app.put('/api/ordens/:id', async (req, res) => {
+app.put('/api/ordens/:id', autenticar, async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
@@ -373,7 +526,7 @@ app.put('/api/ordens/:id', async (req, res) => {
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.delete('/api/ordens/:id', async (req, res) => {
+app.delete('/api/ordens/:id', autenticar, async (req, res) => {
   try {
     await pool.query('DELETE FROM ordens_servico WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
