@@ -451,9 +451,14 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#9aa"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" placeholder="Buscar por nº, local, descrição..." oninput="filtrarOS(this.value)" id="buscaInput">
   </div>
-  <select class="form-input" id="filtroBairro" onchange="setBairro(this.value)" style="margin-bottom:12px;padding:9px 32px 9px 13px;font-size:13px">
-    <option value="todos">🏘️ Todos os bairros</option>
-  </select>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+    <select class="form-input" id="filtroBairro" onchange="setBairro(this.value)" style="padding:9px 28px 9px 12px;font-size:13px">
+      <option value="todos">🏘️ Todos os bairros</option>
+    </select>
+    <select class="form-input" id="filtroTag" onchange="setTag(this.value)" style="padding:9px 28px 9px 12px;font-size:13px">
+      <option value="todos">🏷️ Todas as tags</option>
+    </select>
+  </div>
   <div class="filter-chips">
     <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
     <div class="chip" onclick="setFiltro('aberta',this)">🔵 Abertas</div>
@@ -496,6 +501,10 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div class="form-group">
       <label class="form-label">Descrição <span class="req">*</span></label>
       <textarea class="form-input" id="novaDescricao" rows="3" placeholder="Descreva o serviço a ser realizado..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🏷️ Tag / Origem</label>
+      <input class="form-input" type="text" id="novaTag" maxlength="40" list="tagSugestoes" placeholder="Ex.: Waze, Ouvidoria, 156... (opcional)">
     </div>
   </div>
 
@@ -654,6 +663,7 @@ const S = {
   ordens: [],
   filtro: 'todos',
   bairroFiltro: 'todos',
+  tagFiltro: 'todos',
   busca: '',
   fotoAbertura: null,   // base64
   fotoConclusaoModal: null,
@@ -790,6 +800,11 @@ function renderLista() {
   let lista = S.ordens;
   if (S.filtro !== 'todos') lista = lista.filter(o => o.status === S.filtro);
   if (S.bairroFiltro !== 'todos') lista = lista.filter(o => (o.bairro||'').trim() === S.bairroFiltro);
+  if (S.tagFiltro !== 'todos') {
+    lista = S.tagFiltro === '__sem__'
+      ? lista.filter(o => !(o.tag||'').trim())
+      : lista.filter(o => (o.tag||'').trim() === S.tagFiltro);
+  }
   if (S.busca.length > 1) {
     const q = S.busca.toLowerCase();
     lista = lista.filter(o =>
@@ -848,16 +863,28 @@ function setFiltro(status, el) {
   renderLista();
 }
 function setBairro(b) { S.bairroFiltro = b; renderLista(); }
+function setTag(t) { S.tagFiltro = t; renderLista(); }
 function filtrarOS(texto) { S.busca = texto; renderLista(); }
 
 function popularFiltroBairro() {
   const sel = document.getElementById('filtroBairro');
-  if (!sel) return;
-  const bairros = [...new Set(S.ordens.map(o => (o.bairro||'').trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'pt'));
-  if (!bairros.includes(S.bairroFiltro)) S.bairroFiltro = 'todos';
-  sel.innerHTML = '<option value="todos">🏘️ Todos os bairros</option>' +
-    bairros.map(b => `<option value="${b.replace(/"/g,'&quot;')}"${b===S.bairroFiltro?' selected':''}>${b}</option>`).join('');
+  if (sel) {
+    const bairros = [...new Set(S.ordens.map(o => (o.bairro||'').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt'));
+    if (!bairros.includes(S.bairroFiltro)) S.bairroFiltro = 'todos';
+    sel.innerHTML = '<option value="todos">🏘️ Todos os bairros</option>' +
+      bairros.map(b => `<option value="${b.replace(/"/g,'&quot;')}"${b===S.bairroFiltro?' selected':''}>${b}</option>`).join('');
+  }
+  const selTag = document.getElementById('filtroTag');
+  if (selTag) {
+    const tags = [...new Set(S.ordens.map(o => (o.tag||'').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt'));
+    const temSemTag = S.ordens.some(o => !(o.tag||'').trim());
+    if (S.tagFiltro !== '__sem__' && !tags.includes(S.tagFiltro)) S.tagFiltro = 'todos';
+    selTag.innerHTML = '<option value="todos">🏷️ Todas as tags</option>' +
+      tags.map(t => `<option value="${t.replace(/"/g,'&quot;')}"${t===S.tagFiltro?' selected':''}>🏷️ ${t}</option>`).join('') +
+      (tags.length && temSemTag ? `<option value="__sem__"${S.tagFiltro==='__sem__'?' selected':''}>(sem tag)</option>` : '');
+  }
 }
 
 // ── MAPA ──────────────────────────────────────────────────────────────────────
@@ -910,6 +937,7 @@ async function salvarNovaOS() {
     equipe: v('novaEquipe'),
     prioridade: v('novaPrioridade'),
     prazo: v('novaPrazo') || null,
+    tag: v('novaTag'),
     fotoAbertura: S.fotoAbertura || null,
   };
 
@@ -936,7 +964,7 @@ async function salvarNovaOS() {
 
 function limparFormNova() {
   ['novaTipo','novaDescricao','novaEndereco','novaBairro','novaReferencia',
-   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo'].forEach(id => {
+   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo','novaTag'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('novaPrioridade').value = 'media';
