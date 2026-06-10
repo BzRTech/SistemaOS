@@ -652,9 +652,6 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div style="padding:12px;background:var(--azul-claro);border-radius:var(--radius-sm);font-size:12px;color:var(--azul);margin-bottom:16px">
       ℹ️ Configure a variável <strong>DATABASE_URL</strong> no arquivo <strong>.env</strong> no servidor com a connection string do Neon Database.
     </div>
-    <div class="divider-label">Dados de Demonstração</div>
-    <button class="btn btn-success" onclick="carregarDemo()" style="margin-bottom:8px">🧪 Carregar Dados de Exemplo</button>
-    <button class="btn btn-danger" onclick="limparDados()">🗑️ Limpar Todos os Dados Locais</button>
     <button class="btn btn-secondary" onclick="toggleConfig()" style="margin-top:12px">Fechar</button>
   </div>
 </div>
@@ -1545,30 +1542,6 @@ async function testarConexaoSilencioso() {
       el.innerHTML = '<span class="db-dot"></span> Banco de dados conectado ✓';
     }
   } catch {}
-}
-
-// ── DEMO DATA ─────────────────────────────────────────────────────────────────
-function carregarDemo() {
-  S.ordens = [
-    { id:'d1', numero:'OS-2025-0001', tipo:'Pavimentação / Asfalto', descricao:'Tapa-buracos na Rua das Flores, trecho entre os números 120 e 180.', endereco:'Rua das Flores, 150', bairro:'Centro', referencia:'Em frente ao mercado São João', solicitante:'Maria Silva', responsavel:'Eng. Carlos Andrade', equipe:'Equipe Alpha', prioridade:'alta', prazo:'2025-07-20', status:'aberta', temFotoAbertura:false, temFotoConclusao:false, criadoEm:'2025-06-01T08:30:00Z', atualizadoEm:'2025-06-01T08:30:00Z', historico:[{status:'aberta',data:'2025-06-01T08:30:00Z',obs:'Ordem de serviço aberta'}] },
-    { id:'d2', numero:'OS-2025-0002', tipo:'Iluminação Pública', descricao:'Três postes sem iluminação na Av. Principal, causando insegurança.', endereco:'Av. Principal, 800', bairro:'Jardim Esperança', referencia:'Próximo ao Colégio Municipal', solicitante:'João Santos', responsavel:'Eng. Ana Paula', equipe:'Equipe Beta', prioridade:'media', prazo:'2025-07-15', status:'andamento', temFotoAbertura:false, temFotoConclusao:false, criadoEm:'2025-05-28T14:00:00Z', atualizadoEm:'2025-06-02T09:00:00Z', historico:[{status:'aberta',data:'2025-05-28T14:00:00Z',obs:'Ordem de serviço aberta'},{status:'andamento',data:'2025-06-02T09:00:00Z',obs:'Atendimento iniciado'}] },
-    { id:'d3', numero:'OS-2025-0003', tipo:'Drenagem / Esgoto', descricao:'Bueiro entupido causando alagamento após chuvas.', endereco:'Rua Sete de Setembro, 45', bairro:'Boa Vista', referencia:'Esquina com a Rua das Palmeiras', solicitante:'Pedro Oliveira', responsavel:'Eng. Roberto Lima', equipe:'Equipe Gamma', prioridade:'alta', prazo:'2025-06-10', status:'concluida', temFotoAbertura:true, temFotoConclusao:true, criadoEm:'2025-05-20T10:00:00Z', atualizadoEm:'2025-05-25T16:00:00Z', concluidoEm:'2025-05-25T16:00:00Z', historico:[{status:'aberta',data:'2025-05-20T10:00:00Z',obs:'Ordem de serviço aberta'},{status:'andamento',data:'2025-05-22T08:00:00Z',obs:'Equipe deslocada ao local'},{status:'concluida',data:'2025-05-25T16:00:00Z',obs:'Serviço concluído'}] },
-  ];
-  salvarLocal();
-  atualizarStats();
-  renderLista();
-  toggleConfig();
-  toast('🧪 Dados de exemplo carregados!');
-}
-
-function limparDados() {
-  if (!confirm('Limpar todos os dados locais?')) return;
-  S.ordens = [];
-  localStorage.removeItem('os_dados');
-  atualizarStats();
-  renderLista();
-  toggleConfig();
-  toast('🗑️ Dados locais apagados.');
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
