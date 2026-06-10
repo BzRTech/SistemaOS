@@ -340,6 +340,15 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 .info-table td:first-child { color: var(--cinza-texto); width: 42%; }
 .info-table td:last-child { font-weight: 600; }
 
+/* RECORRÊNCIA */
+.recorrente-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fff3e0; color: var(--laranja);
+  border: 1px solid #f5cf9b;
+  font-size: 11px; font-weight: 700;
+  padding: 3px 9px; border-radius: 20px;
+}
+
 /* PRIORIDADE */
 .prio-alta { color: var(--vermelho); font-weight: 700; }
 .prio-media { color: var(--laranja); font-weight: 700; }
@@ -559,6 +568,10 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <div class="foto-upload-text">Toque para escolher o arquivo CSV</div>
       <div class="foto-upload-sub">Separador vírgula ou ponto-e-vírgula · com cabeçalho</div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="chkAgruparCSV" checked onchange="reprocessarCSV()" style="width:17px;height:17px;accent-color:var(--verde)">
+      Agrupar linhas repetidas do mesmo endereço em uma única O.S. (recomendado)
+    </label>
     <div id="importPreview" style="margin-top:12px"></div>
     <button class="btn btn-primary" id="btnImportar" style="display:none;margin-top:10px" onclick="confirmarImportCSV()">✅ Importar ordens</button>
   </div>
@@ -783,6 +796,9 @@ function renderLista() {
         ${os.prazo?`<div class="os-info-item">📅 ${fmtData(os.prazo)}</div>`:''}
         ${os.prioridade==='alta'?`<div class="os-info-item prio-alta">🔴 Urgente</div>`:''}
       </div>
+      ${os.ocorrencias>1?`<div class="os-info-row" style="margin-top:6px">
+        <span class="recorrente-pill">🔁 Recorrente · ${os.ocorrencias} ocorrências desde ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</span>
+      </div>`:''}
       <div class="os-info-row" style="margin-top:4px">
         ${os.responsavel?`<div class="os-info-item">👷 ${os.responsavel}</div>`:''}
         <div class="os-info-item">🕐 ${fmtDataHora(os.criadoEm)}</div>
@@ -903,6 +919,7 @@ async function abrirDetalhes(id) {
         ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
         ${os.equipe?`<tr><td>Equipe</td><td>${os.equipe}</td></tr>`:''}
         <tr><td>Prioridade</td><td class="prio-${os.prioridade}">${labelPrio(os.prioridade)}</td></tr>
+        ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
         ${os.prazo?`<tr><td>Prazo</td><td>${fmtData(os.prazo)}</td></tr>`:''}
         <tr><td>Aberta em</td><td>${fmtDataHora(os.criadoEm)}</td></tr>
         ${os.concluidoEm?`<tr><td>Concluída em</td><td>${fmtDataHora(os.concluidoEm)}</td></tr>`:''}
@@ -1244,13 +1261,24 @@ function normalizarDataCSV(v) {
   return null;
 }
 
+let csvTextoAtual = null, csvNomeAtual = '';
+
 function selecionarCSV(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => processarCSV(e.target.result, file.name);
+  reader.onload = e => {
+    csvTextoAtual = e.target.result;
+    csvNomeAtual = file.name;
+    processarCSV(csvTextoAtual, csvNomeAtual);
+  };
   reader.readAsText(file, 'utf-8');
   input.value = '';
+}
+
+// reprocessa quando o usuário liga/desliga o agrupamento
+function reprocessarCSV() {
+  if (csvTextoAtual) processarCSV(csvTextoAtual, csvNomeAtual);
 }
 
 function processarCSV(texto, nomeArquivo) {
@@ -1271,8 +1299,13 @@ function processarCSV(texto, nomeArquivo) {
     return;
   }
 
-  const pega = (linha, campo) => idx[campo] !== undefined ? (linha[idx[campo]] || '').trim() : '';
+  const pega = (linha, campo) => {
+    if (idx[campo] === undefined) return '';
+    const v = (linha[idx[campo]] || '').trim();
+    return /^(null|undefined|n\/a|-)$/i.test(v) ? '' : v; // lixo comum em exports
+  };
 
+  const itens = [];
   for (const linha of linhas.slice(1)) {
     const endereco = pega(linha, 'endereco');
     let descricao = pega(linha, 'descricao');
@@ -1282,10 +1315,9 @@ function processarCSV(texto, nomeArquivo) {
     const lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
     if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
     if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
-    const qtd = parseInt(pega(linha, 'quantidade'), 10);
-    if (qtd > 1) descricao += ` (${qtd} ocorrências registradas)`;
+    const data = normalizarDataCSV(pega(linha, 'criadoEm'));
 
-    csvOrdensParaImportar.push({
+    itens.push({
       tipo: traduzTipo(pega(linha, 'tipo')) || 'Pavimentação / Asfalto',
       descricao, endereco,
       bairro: pega(linha, 'bairro'),
@@ -1295,8 +1327,31 @@ function processarCSV(texto, nomeArquivo) {
       equipe: pega(linha, 'equipe'),
       prioridade: normalizarPrioridade(pega(linha, 'prioridade')),
       prazo: normalizarDataCSV(pega(linha, 'prazo')),
-      criadoEm: normalizarDataCSV(pega(linha, 'criadoEm')),
+      criadoEm: data,
+      ocorrencias: Math.max(1, parseInt(pega(linha, 'quantidade'), 10) || 1),
+      primeiraOcorrencia: data,
     });
+  }
+
+  const totalLinhas = itens.length;
+  const agrupar = document.getElementById('chkAgruparCSV')?.checked ?? true;
+  if (agrupar) {
+    const grupos = new Map();
+    for (const it of itens) {
+      const chave = `${(it.endereco || it.descricao).toLowerCase()}|${(it.bairro || '').toLowerCase()}`;
+      const g = grupos.get(chave);
+      if (!g) { grupos.set(chave, { ...it }); continue; }
+      g.ocorrencias += it.ocorrencias;
+      if (it.criadoEm) {
+        if (!g.primeiraOcorrencia || it.criadoEm < g.primeiraOcorrencia) g.primeiraOcorrencia = it.criadoEm;
+        if (!g.criadoEm || it.criadoEm > g.criadoEm) g.criadoEm = it.criadoEm; // OS "aberta" na ocorrência mais recente
+      }
+      if (it.prioridade === 'alta') g.prioridade = 'alta';
+      if (!g.referencia && it.referencia) g.referencia = it.referencia;
+    }
+    csvOrdensParaImportar = [...grupos.values()];
+  } else {
+    csvOrdensParaImportar = itens;
   }
 
   if (!csvOrdensParaImportar.length) {
@@ -1304,11 +1359,12 @@ function processarCSV(texto, nomeArquivo) {
     return;
   }
 
+  const recorrentes = csvOrdensParaImportar.filter(o => o.ocorrencias > 1).length;
   const detectadas = Object.keys(idx).map(c => `<code>${c}</code>`).join(', ');
   const amostra = csvOrdensParaImportar.slice(0, 3).map(o =>
-    `<li style="margin-bottom:4px">📍 ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}</li>`).join('');
+    `<li style="margin-bottom:4px">📍 ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}${o.ocorrencias > 1 ? ` <strong>(🔁 ${o.ocorrencias}x)</strong>` : ''}</li>`).join('');
   preview.innerHTML = `
-    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${csvOrdensParaImportar.length} ordem(ns) prontas para importar.</div>
+    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${totalLinhas} linha(s) → <strong>${csvOrdensParaImportar.length} O.S.</strong>${agrupar && totalLinhas > csvOrdensParaImportar.length ? ` (agrupadas por endereço, ${recorrentes} recorrentes)` : ''}${linhas.length - 1 - totalLinhas > 0 ? ` · ${linhas.length - 1 - totalLinhas} linha(s) sem endereço ignoradas` : ''}</div>
     <div style="font-size:12px;color:var(--cinza-texto);margin-bottom:8px">Colunas reconhecidas: ${detectadas}</div>
     <ul style="font-size:12px;color:var(--cinza-texto);padding-left:16px">${amostra}</ul>`;
   btn.style.display = 'flex';
@@ -1349,11 +1405,12 @@ function exportarCSV() {
   if (de) ordens = ordens.filter(o => o.criadoEm >= de);
   if (ate) ordens = ordens.filter(o => o.criadoEm <= ate + 'T23:59:59');
 
-  const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Prazo','Aberta em','Concluída em'];
+  const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Ocorrências','Primeira Ocorrência','Prazo','Aberta em','Concluída em'];
   const rows = ordens.map(o => [
     o.numero, o.tipo, o.descricao||'', labelStatus(o.status),
     o.endereco||'', o.bairro||'', o.solicitante||'', o.responsavel||'', o.equipe||'',
-    o.prioridade||'', o.prazo||'', fmtDataHora(o.criadoEm), o.concluidoEm?fmtDataHora(o.concluidoEm):''
+    o.prioridade||'', o.ocorrencias||1, o.primeiraOcorrencia?fmtData(o.primeiraOcorrencia):'',
+    o.prazo||'', fmtDataHora(o.criadoEm), o.concluidoEm?fmtDataHora(o.concluidoEm):''
   ]);
   const esc = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g,'""') + '"' : String(v);
   const csv = [hdrs, ...rows].map(r => r.map(esc).join(',')).join('\n');

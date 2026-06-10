@@ -39,6 +39,8 @@ async function iniciarBanco() {
       prioridade      TEXT DEFAULT 'media',
       prazo           DATE,
       status          TEXT DEFAULT 'aberta',
+      ocorrencias     INTEGER DEFAULT 1,
+      primeira_ocorrencia DATE,
       foto_abertura   TEXT,
       foto_conclusao  TEXT,
       historico       JSONB DEFAULT '[]',
@@ -47,6 +49,10 @@ async function iniciarBanco() {
       concluido_em    TIMESTAMPTZ
     )
   `);
+
+  // Migração: colunas novas em bancos existentes
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS ocorrencias INTEGER DEFAULT 1`);
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS primeira_ocorrencia DATE`);
 
   // Migração: renomeia colunas antigas se existirem
   const renames = [
@@ -168,6 +174,8 @@ function mapRow(r, incluirFotos) {
     endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
     solicitante: r.solicitante, responsavel: r.responsavel, equipe: r.equipe,
     prioridade: r.prioridade, prazo: r.prazo, status: r.status,
+    ocorrencias: r.ocorrencias || 1,
+    primeiraOcorrencia: r.primeira_ocorrencia,
     temFotoAbertura: !!r.foto_abertura,
     temFotoConclusao: !!r.foto_conclusao,
     fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
@@ -208,6 +216,7 @@ app.get('/api/ordens', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
+             ocorrencias, primeira_ocorrencia,
              (foto_abertura  IS NOT NULL AND foto_abertura::text  <> '') AS tem_abertura,
              (foto_conclusao IS NOT NULL AND foto_conclusao::text <> '') AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
@@ -232,7 +241,7 @@ app.get('/api/ordens/:id', async (req, res) => {
 const COLUNAS_INSERT = `
   id, numero, tipo, descricao, endereco, bairro, referencia,
   solicitante, responsavel, equipe, prioridade, prazo, status,
-  foto_abertura, historico, criado_em`;
+  ocorrencias, primeira_ocorrencia, foto_abertura, historico, criado_em`;
 
 function valoresInsert(o, numero, criadoEm) {
   const data = criadoEm || new Date().toISOString();
@@ -244,6 +253,8 @@ function valoresInsert(o, numero, criadoEm) {
     o.endereco || '', o.bairro || '', o.referencia || '',
     o.solicitante, o.responsavel || '', o.equipe || '',
     o.prioridade || 'media', o.prazo || null, 'aberta',
+    Math.max(1, parseInt(o.ocorrencias, 10) || 1),
+    validarData(o.primeiraOcorrencia) ? o.primeiraOcorrencia : null,
     o.fotoAbertura || null, historico, data,
   ];
 }
@@ -259,11 +270,12 @@ app.post('/api/ordens', async (req, res) => {
     await client.query('LOCK TABLE ordens_servico IN SHARE ROW EXCLUSIVE MODE');
     const ano = new Date().getFullYear();
     const numero = fmtNumero(ano, await gerarNumeroOS(client, ano));
+    const vals = valoresInsert(o, numero);
     const { rows } = await client.query(
       `INSERT INTO ordens_servico (${COLUNAS_INSERT})
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       VALUES (${vals.map((_, i) => '$' + (i + 1)).join(',')})
        RETURNING *`,
-      valoresInsert(o, numero)
+      vals
     );
     await client.query('COMMIT');
     res.json(mapRow(rows[0], true));
