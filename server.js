@@ -293,22 +293,30 @@ app.post('/api/ordens/importar', async (req, res) => {
     const ano = new Date().getFullYear();
     let seq = await gerarNumeroOS(client, ano);
 
+    const validas = lista.filter(o => o.endereco || o.descricao); // descarta linha vazia
     const numeros = [];
-    for (const o of lista) {
-      if (!o.endereco && !o.descricao) continue; // linha vazia/inútil
-      const numero = fmtNumero(ano, seq++);
-      const item = {
-        ...o,
-        solicitante: (o.solicitante && String(o.solicitante).trim()) || 'Importação CSV',
-        obsAbertura: 'Importada via CSV',
-      };
-      const criadoEm = validarData(o.criadoEm);
+    // inserção em lotes: 868 linhas viram ~9 round-trips ao banco em vez de 868
+    const LOTE = 100;
+    for (let i = 0; i < validas.length; i += LOTE) {
+      const chunk = validas.slice(i, i + LOTE);
+      const params = [];
+      const tuplas = chunk.map(o => {
+        const numero = fmtNumero(ano, seq++);
+        numeros.push(numero);
+        const item = {
+          ...o,
+          solicitante: (o.solicitante && String(o.solicitante).trim()) || 'Importação CSV',
+          obsAbertura: 'Importada via CSV',
+        };
+        const vals = valoresInsert(item, numero, validarData(o.criadoEm));
+        const base = params.length;
+        params.push(...vals);
+        return '(' + vals.map((_, k) => '$' + (base + k + 1)).join(',') + ')';
+      });
       await client.query(
-        `INSERT INTO ordens_servico (${COLUNAS_INSERT})
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-        valoresInsert(item, numero, criadoEm)
+        `INSERT INTO ordens_servico (${COLUNAS_INSERT}) VALUES ${tuplas.join(',')}`,
+        params
       );
-      numeros.push(numero);
     }
 
     await client.query('COMMIT');
