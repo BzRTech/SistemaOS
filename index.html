@@ -340,6 +340,15 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 .info-table td:first-child { color: var(--cinza-texto); width: 42%; }
 .info-table td:last-child { font-weight: 600; }
 
+/* TAG ORIGEM */
+.tag-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #efe8fa; color: #6a3fb5;
+  border: 1px solid #d8c8f2;
+  font-size: 11px; font-weight: 700;
+  padding: 3px 9px; border-radius: 20px;
+}
+
 /* RECORRÊNCIA */
 .recorrente-pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -577,6 +586,13 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <div class="foto-upload-text">Toque para escolher o arquivo CSV</div>
       <div class="foto-upload-sub">Separador vírgula ou ponto-e-vírgula · com cabeçalho</div>
     </div>
+    <div class="form-group" style="margin-top:12px;margin-bottom:0">
+      <label class="form-label">🏷️ Tag de origem das O.S. importadas</label>
+      <input class="form-input" type="text" id="tagImportCSV" value="Waze" maxlength="40" list="tagSugestoes" onchange="reprocessarCSV()" placeholder="Ex.: Waze, Ouvidoria, 156...">
+      <datalist id="tagSugestoes">
+        <option value="Waze"><option value="Ouvidoria"><option value="156"><option value="Vistoria de campo"><option value="Defesa Civil">
+      </datalist>
+    </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;cursor:pointer">
       <input type="checkbox" id="chkAgruparCSV" checked onchange="reprocessarCSV()" style="width:17px;height:17px;accent-color:var(--verde)">
       Agrupar linhas repetidas do mesmo endereço em uma única O.S. (recomendado)
@@ -808,8 +824,9 @@ function renderLista() {
         ${os.prazo?`<div class="os-info-item">📅 ${fmtData(os.prazo)}</div>`:''}
         ${os.prioridade==='alta'?`<div class="os-info-item prio-alta">🔴 Urgente</div>`:''}
       </div>
-      ${os.ocorrencias>1?`<div class="os-info-row" style="margin-top:6px">
-        <span class="recorrente-pill">🔁 Recorrente · ${os.ocorrencias} ocorrências desde ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</span>
+      ${os.ocorrencias>1||os.tag?`<div class="os-info-row" style="margin-top:6px;gap:6px">
+        ${os.tag?`<span class="tag-pill">🏷️ ${os.tag}</span>`:''}
+        ${os.ocorrencias>1?`<span class="recorrente-pill">🔁 Recorrente · ${os.ocorrencias} ocorrências desde ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</span>`:''}
       </div>`:''}
       <div class="os-info-row" style="margin-top:4px">
         ${os.responsavel?`<div class="os-info-item">👷 ${os.responsavel}</div>`:''}
@@ -958,6 +975,7 @@ async function abrirDetalhes(id) {
         ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
         ${os.equipe?`<tr><td>Equipe</td><td>${os.equipe}</td></tr>`:''}
         <tr><td>Prioridade</td><td class="prio-${os.prioridade}">${labelPrio(os.prioridade)}</td></tr>
+        ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
         ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
         ${os.prazo?`<tr><td>Prazo</td><td>${fmtData(os.prazo)}</td></tr>`:''}
         <tr><td>Aberta em</td><td>${fmtDataHora(os.criadoEm)}</td></tr>
@@ -1370,6 +1388,7 @@ function processarCSV(texto, nomeArquivo) {
       criadoEm: data,
       ocorrencias: Math.max(1, parseInt(pega(linha, 'quantidade'), 10) || 1),
       primeiraOcorrencia: data,
+      tag: (document.getElementById('tagImportCSV')?.value || '').trim(),
     });
   }
 
@@ -1445,11 +1464,11 @@ function exportarCSV() {
   if (de) ordens = ordens.filter(o => o.criadoEm >= de);
   if (ate) ordens = ordens.filter(o => o.criadoEm <= ate + 'T23:59:59');
 
-  const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Ocorrências','Primeira Ocorrência','Prazo','Aberta em','Concluída em'];
+  const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Tag','Ocorrências','Primeira Ocorrência','Prazo','Aberta em','Concluída em'];
   const rows = ordens.map(o => [
     o.numero, o.tipo, o.descricao||'', labelStatus(o.status),
     o.endereco||'', o.bairro||'', o.solicitante||'', o.responsavel||'', o.equipe||'',
-    o.prioridade||'', o.ocorrencias||1, o.primeiraOcorrencia?fmtData(o.primeiraOcorrencia):'',
+    o.prioridade||'', o.tag||'', o.ocorrencias||1, o.primeiraOcorrencia?fmtData(o.primeiraOcorrencia):'',
     o.prazo||'', fmtDataHora(o.criadoEm), o.concluidoEm?fmtDataHora(o.concluidoEm):''
   ]);
   const esc = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g,'""') + '"' : String(v);
