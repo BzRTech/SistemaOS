@@ -1132,6 +1132,31 @@ function fecharModal() {
 }
 
 // ── AÇÕES ─────────────────────────────────────────────────────────────────────
+
+// GPS do aparelho (requer HTTPS e permissão do usuário)
+function capturarGPS() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({
+        lat: +pos.coords.latitude.toFixed(6),
+        lng: +pos.coords.longitude.toFixed(6),
+        acc: Math.round(pos.coords.accuracy || 0),
+      }),
+      () => resolve(null), // negado / indisponível: segue sem GPS
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  });
+}
+
+// troca (ou acrescenta) o trecho "Coordenadas: lat, lng" da referência
+function aplicarCoordenadas(referencia, gps) {
+  const trecho = `Coordenadas: ${gps.lat}, ${gps.lng}`;
+  const re = /Coordenadas:\s*-?\d+(?:\.\d+)?\s*[,;]\s*-?\d+(?:\.\d+)?/i;
+  if (re.test(referencia || '')) return referencia.replace(re, trecho);
+  return (referencia ? referencia + ' · ' : '') + trecho;
+}
+
 async function mudarStatus(novoStatus) {
   const os = S.osAberta;
   if (!os) return;
@@ -1142,7 +1167,23 @@ async function mudarStatus(novoStatus) {
   }
 
   const obsMap = { validada:'O.S. validada', andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
-  const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs: obsMap[novoStatus] }];
+  let obs = obsMap[novoStatus];
+
+  // na validação, quem valida está no local: atualiza as coordenadas pelo GPS
+  let referencia;
+  if (novoStatus === 'validada') {
+    toast('📡 Obtendo localização do aparelho...', 9000);
+    const gps = await capturarGPS();
+    if (gps) {
+      referencia = aplicarCoordenadas(os.referencia || '', gps);
+      obs += ` — localização confirmada pelo GPS (${gps.lat}, ${gps.lng}${gps.acc ? `, ±${gps.acc} m` : ''})`;
+      toast('📍 Coordenadas atualizadas pela localização do aparelho!');
+    } else {
+      toast('⚠️ GPS indisponível — validada sem atualizar a localização.', 3000);
+    }
+  }
+
+  const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs }];
 
   const body = {
     status: novoStatus,
@@ -1150,6 +1191,7 @@ async function mudarStatus(novoStatus) {
     equipe: os.equipe || '',
     historico,
     fotoConclusao: S.fotoConclusaoModal || os.fotoConclusao || null,
+    ...(referencia !== undefined && { referencia }),
     ...(novoStatus === 'concluida' && { concluidoEm: new Date().toISOString() }),
   };
 

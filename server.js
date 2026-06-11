@@ -356,18 +356,20 @@ app.put('/api/ordens/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
-    const atual = await pool.query('SELECT foto_abertura, foto_conclusao FROM ordens_servico WHERE id = $1', [id]);
+    const atual = await pool.query('SELECT foto_abertura, foto_conclusao, referencia FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
     const fotoAbertura  = o.fotoAbertura  !== undefined ? o.fotoAbertura  : atual.rows[0].foto_abertura;
     const fotoConclusao = o.fotoConclusao !== undefined ? o.fotoConclusao : atual.rows[0].foto_conclusao;
+    // referencia só muda se vier no body (ex.: GPS capturado na validação)
+    const referencia = o.referencia !== undefined ? o.referencia : atual.rows[0].referencia;
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          status = $1, responsavel = $2, equipe = $3, historico = $4,
-         foto_abertura = $5, foto_conclusao = $6,
-         atualizado_em = NOW(), concluido_em = $7
-       WHERE id = $8 RETURNING *`,
+         foto_abertura = $5, foto_conclusao = $6, referencia = $7,
+         atualizado_em = NOW(), concluido_em = $8
+       WHERE id = $9 RETURNING *`,
       [o.status, o.responsavel || '', o.equipe || '', JSON.stringify(o.historico || []),
-       fotoAbertura, fotoConclusao, o.concluidoEm || null, id]
+       fotoAbertura, fotoConclusao, referencia, o.concluidoEm || null, id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
