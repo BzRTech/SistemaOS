@@ -530,6 +530,11 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <label class="form-label">Ponto de Referência</label>
       <input class="form-input" type="text" id="novaReferencia" placeholder="Próximo a... / Em frente ao...">
     </div>
+    <div class="form-group">
+      <label class="form-label">🧭 Coordenadas <span style="font-weight:400;color:var(--cinza-texto)">(opcional)</span></label>
+      <input class="form-input" type="text" id="novaCoordenadas" placeholder="-7.1195, -34.8450" inputmode="text">
+      <div style="font-size:11px;color:var(--cinza-texto);margin-top:4px">Se preenchidas, o botão do mapa abre o ponto exato em vez do endereço.</div>
+    </div>
   </div>
 
   <div class="form-card">
@@ -932,6 +937,16 @@ async function salvarNovaOS() {
     return;
   }
 
+  const coordTxt = v('novaCoordenadas');
+  const coord = coordTxt ? parseCoordenadas(coordTxt) : null;
+  if (coordTxt && !coord) {
+    alertEl.innerHTML = `<div class="alert alert-error">⚠️ Coordenadas inválidas. Use o formato: -7.1195, -34.8450</div>`;
+    alertEl.scrollIntoView({ behavior:'smooth' });
+    return;
+  }
+  let referencia = v('novaReferencia');
+  if (coord) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${coord.lat}, ${coord.lng}`;
+
   const btn = document.getElementById('btnSalvarNova');
   btn.disabled = true;
   btn.textContent = '⏳ Salvando...';
@@ -939,7 +954,7 @@ async function salvarNovaOS() {
   const os = {
     tipo, descricao, endereco,
     bairro: v('novaBairro'),
-    referencia: v('novaReferencia'),
+    referencia,
     solicitante,
     responsavel: v('novaResponsavel'),
     equipe: v('novaEquipe'),
@@ -972,7 +987,7 @@ async function salvarNovaOS() {
 
 function limparFormNova() {
   ['novaTipo','novaDescricao','novaEndereco','novaBairro','novaReferencia',
-   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo','novaTag'].forEach(id => {
+   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo','novaTag','novaCoordenadas'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('novaPrioridade').value = 'media';
@@ -1502,11 +1517,21 @@ const MAPA_COLUNAS = {
   prioridade:  ['prioridade', 'urgencia', 'severidade', 'gravidade'],
   prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
   tipo:        ['subtipo', 'subtype', 'tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria', 'type'],
-  quantidade:  ['record_count', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
+  quantidade:  ['record_count', 'qtd_registros', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
   criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
   latitude:    ['latitude', 'lat'],
   longitude:   ['longitude', 'lng', 'long', 'lon'],
+  coordenadas: ['coordenadas', 'coordenada', 'coordinates', 'coords', 'ponto', 'lat_lng', 'lat_long', 'latlng'],
 };
+
+// "−7.143197,-34.845491" → { lat, lng } (valida faixas geográficas)
+function parseCoordenadas(v) {
+  const m = String(v || '').match(/(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!m) return null;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
 
 function mapearColunas(cabecalhos) {
   const norm = cabecalhos.map(normalizarCabecalho);
@@ -1605,12 +1630,13 @@ function processarCSV(texto, nomeArquivo) {
   for (const linha of linhas.slice(1)) {
     const endereco = pega(linha, 'endereco');
     let descricao = pega(linha, 'descricao');
-    if (!endereco && !descricao) continue;
+    const coord = parseCoordenadas(pega(linha, 'coordenadas')) ||
+                  parseCoordenadas(pega(linha, 'latitude') + ',' + pega(linha, 'longitude'));
+    if (!endereco && !descricao && !coord) continue; // sem rua nem ponto: nada a localizar
 
     let referencia = pega(linha, 'referencia');
-    const lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
-    if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
-    if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
+    if (coord) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${coord.lat}, ${coord.lng}`;
+    if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : coord ? ` — ponto ${coord.lat}, ${coord.lng}` : '');
     const data = normalizarDataCSV(pega(linha, 'criadoEm'));
 
     itens.push({
@@ -1627,6 +1653,8 @@ function processarCSV(texto, nomeArquivo) {
       ocorrencias: Math.max(1, parseInt(pega(linha, 'quantidade'), 10) || 1),
       primeiraOcorrencia: data,
       tag: (document.getElementById('tagImportCSV')?.value || '').trim(),
+      // pontos distintos da mesma rua não devem ser agrupados (~11 m de tolerância)
+      chavePonto: coord ? `${coord.lat.toFixed(4)},${coord.lng.toFixed(4)}` : '',
     });
   }
 
@@ -1635,7 +1663,7 @@ function processarCSV(texto, nomeArquivo) {
   if (agrupar) {
     const grupos = new Map();
     for (const it of itens) {
-      const chave = `${(it.endereco || it.descricao).toLowerCase()}|${(it.bairro || '').toLowerCase()}`;
+      const chave = it.chavePonto || `${(it.endereco || it.descricao).toLowerCase()}|${(it.bairro || '').toLowerCase()}`;
       const g = grupos.get(chave);
       if (!g) { grupos.set(chave, { ...it }); continue; }
       g.ocorrencias += it.ocorrencias;
@@ -1659,9 +1687,9 @@ function processarCSV(texto, nomeArquivo) {
   const recorrentes = csvOrdensParaImportar.filter(o => o.ocorrencias > 1).length;
   const detectadas = Object.keys(idx).map(c => `<code>${c}</code>`).join(', ');
   const amostra = csvOrdensParaImportar.slice(0, 3).map(o =>
-    `<li style="margin-bottom:4px">📍 ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}${o.ocorrencias > 1 ? ` <strong>(🔁 ${o.ocorrencias}x)</strong>` : ''}</li>`).join('');
+    `<li style="margin-bottom:4px">${o.chavePonto ? '🧭' : '📍'} ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}${o.ocorrencias > 1 ? ` <strong>(🔁 ${o.ocorrencias}x)</strong>` : ''}</li>`).join('');
   preview.innerHTML = `
-    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${totalLinhas} linha(s) → <strong>${csvOrdensParaImportar.length} O.S.</strong>${agrupar && totalLinhas > csvOrdensParaImportar.length ? ` (agrupadas por endereço, ${recorrentes} recorrentes)` : ''}${linhas.length - 1 - totalLinhas > 0 ? ` · ${linhas.length - 1 - totalLinhas} linha(s) sem endereço ignoradas` : ''}</div>
+    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${totalLinhas} linha(s) → <strong>${csvOrdensParaImportar.length} O.S.</strong>${agrupar && totalLinhas > csvOrdensParaImportar.length ? ` (agrupadas por ponto/endereço, ${recorrentes} recorrentes)` : ''}${linhas.length - 1 - totalLinhas > 0 ? ` · ${linhas.length - 1 - totalLinhas} linha(s) sem endereço nem coordenadas ignoradas` : ''}</div>
     <div style="font-size:12px;color:var(--cinza-texto);margin-bottom:8px">Colunas reconhecidas: ${detectadas}</div>
     <ul style="font-size:12px;color:var(--cinza-texto);padding-left:16px">${amostra}</ul>`;
   btn.style.display = 'flex';
@@ -1674,19 +1702,28 @@ async function confirmarImportCSV() {
   btn.disabled = true;
   btn.textContent = '⏳ Importando...';
   try {
-    const r = await fetch('/api/ordens/importar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ordens: csvOrdensParaImportar }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
-    preview.innerHTML = `<div class="alert alert-success">✅ ${data.importadas} O.S. importadas com sucesso!${data.ignoradas ? ` (${data.ignoradas} linha(s) ignoradas)` : ''}</div>`;
+    // o servidor aceita até 2000 por chamada; arquivos grandes vão em lotes
+    const LOTE = 1000;
+    const total = csvOrdensParaImportar.length;
+    let importadas = 0, ignoradas = 0;
+    for (let i = 0; i < total; i += LOTE) {
+      if (total > LOTE) btn.textContent = `⏳ Importando... (${Math.min(i + LOTE, total)}/${total})`;
+      const r = await fetch('/api/ordens/importar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordens: csvOrdensParaImportar.slice(i, i + LOTE) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
+      importadas += data.importadas;
+      ignoradas += data.ignoradas || 0;
+    }
+    preview.innerHTML = `<div class="alert alert-success">✅ ${importadas} O.S. importadas com sucesso!${ignoradas ? ` (${ignoradas} linha(s) ignoradas)` : ''}</div>`;
     csvOrdensParaImportar = [];
     btn.style.display = 'none';
     await carregarOS();
     renderRelatorio();
-    toast(`✅ ${data.importadas} O.S. criadas a partir do CSV!`);
+    toast(`✅ ${importadas} O.S. criadas a partir do CSV!`);
   } catch (e) {
     preview.innerHTML += `<div class="alert alert-error">❌ Erro ao importar: ${e.message}</div>`;
   } finally {
