@@ -114,6 +114,7 @@ body {
 }
 .os-card:active { transform: scale(0.98); }
 .os-card.aberta { border-left-color: var(--azul); }
+.os-card.validada { border-left-color: #8a5fd0; }
 .os-card.andamento { border-left-color: var(--amarelo); }
 .os-card.concluida { border-left-color: var(--verde-medio); }
 .os-card.cancelada { border-left-color: var(--vermelho); }
@@ -126,6 +127,7 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
+.badge-validada { background: #f0e9fb; color: #6a3fb5; }
 .badge-andamento { background: #fff8e6; color: var(--laranja); }
 .badge-concluida { background: var(--verde-claro); color: var(--verde); }
 .badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
@@ -467,7 +469,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   <div class="filter-chips">
     <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
     <div class="chip" onclick="setFiltro('aberta',this)">🔵 Abertas</div>
-    <div class="chip" onclick="setFiltro('validada',this)"> Validada</div>
+    <div class="chip" onclick="setFiltro('validada',this)">🟣 Validadas</div>
     <div class="chip" onclick="setFiltro('andamento',this)">🟡 Andamento</div>
     <div class="chip" onclick="setFiltro('concluida',this)">🟢 Concluídas</div>
     <div class="chip" onclick="setFiltro('cancelada',this)">🔴 Canceladas</div>
@@ -1084,7 +1086,8 @@ async function abrirDetalhes(id) {
     <div class="form-card">
       <div class="form-card-title">⚡ Alterar Status</div>
       <div class="btn-row">
-        ${os.status==='aberta'?`<button class="btn btn-warning" onclick="mudarStatus('andamento')">🔧 Iniciar Atendimento</button>`:''}
+        ${os.status==='aberta'?`<button class="btn btn-primary" onclick="mudarStatus('validada')">✔️ Validar O.S.</button>`:''}
+        ${os.status==='validada'?`<button class="btn btn-warning" onclick="mudarStatus('andamento')">🔧 Iniciar Atendimento</button>`:''}
         ${os.status==='andamento'?`<button class="btn btn-success" onclick="mudarStatus('concluida')">✅ Concluir O.S.</button>`:''}
         <button class="btn btn-danger" onclick="mudarStatus('cancelada')">❌ Cancelar</button>
       </div>
@@ -1122,7 +1125,7 @@ async function mudarStatus(novoStatus) {
     return;
   }
 
-  const obsMap = { andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
+  const obsMap = { validada:'O.S. validada', andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
   const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs: obsMap[novoStatus] }];
 
   const body = {
@@ -1230,6 +1233,7 @@ function renderRelatorio() {
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
       ${[['aberta','Abertas',c('aberta'),'var(--azul)','var(--azul-claro)'],
+         ['validada','Validadas',c('validada'),'#6a3fb5','#f0e9fb'],
          ['andamento','Andamento',c('andamento'),'var(--laranja)','#fff8e6'],
          ['concluida','Concluídas',c('concluida'),'var(--verde)','var(--verde-claro)'],
          ['cancelada','Canceladas',c('cancelada'),'var(--vermelho)','var(--vermelho-claro)']
@@ -1574,16 +1578,16 @@ function limparDados() {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function labelStatus(s) {
-  return { aberta:'Aberta', andamento:'Em Andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
+  return { aberta:'Aberta', validada:'Validada', andamento:'Em Andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
 }
 function labelPrio(p) {
   return { alta:'🔴 Alta — Urgente', media:'🟡 Média', baixa:'🟢 Baixa' }[p] || p;
 }
 function corStatus(s) {
-  return { aberta:'var(--azul)', andamento:'var(--amarelo)', concluida:'var(--verde-medio)', cancelada:'var(--vermelho)' }[s] || '#888';
+  return { aberta:'var(--azul)', validada:'#8a5fd0', andamento:'var(--amarelo)', concluida:'var(--verde-medio)', cancelada:'var(--vermelho)' }[s] || '#888';
 }
 function iconStatus(s) {
-  return { aberta:'📋', andamento:'🔧', concluida:'✅', cancelada:'❌' }[s] || '•';
+  return { aberta:'📋', validada:'✔️', andamento:'🔧', concluida:'✅', cancelada:'❌' }[s] || '•';
 }
 function fmtData(d) {
   if (!d) return '';
