@@ -1022,6 +1022,7 @@ async function abrirDetalhes(id) {
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}
       ${os.endereco?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
     </div>
 
     <!-- FOTO ABERTURA -->
@@ -1207,6 +1208,205 @@ async function excluirOS() {
   salvarLocal();
   fecharModal();
   toast('🗑️ O.S. excluída.');
+}
+
+// ── IMPRESSÃO ─────────────────────────────────────────────────────────────────
+function imprimirOS() {
+  const os = S.osAberta;
+  if (!os) return;
+  const e = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  const badges = {
+    aberta:    ['#e8f0fa', '#1a6eb4', '#b3cfe8', '📋 Aberta'],
+    validada:  ['#f0e9fb', '#6a3fb5', '#c9b3ec', '✔ Validada'],
+    andamento: ['#fff8e6', '#e07b1a', '#f5d9a0', '🔧 Em Andamento'],
+    concluida: ['#e8f5ee', '#1a6e45', '#a8d5b8', '✅ Concluída'],
+    cancelada: ['#fdecea', '#d32f2f', '#f3b6b1', '❌ Cancelada'],
+  };
+  const [bgB, corB, bordaB, lblB] = badges[os.status] || badges.aberta;
+  const prios = {
+    alta:  ['#fdecea', '#d32f2f', '#f3b6b1', '🔴 Prioridade Alta'],
+    media: ['#fff8e6', '#e07b1a', '#f5d9a0', '🟡 Prioridade Média'],
+    baixa: ['#e8f5ee', '#1a6e45', '#a8d5b8', '🟢 Prioridade Baixa'],
+  };
+  const [bgP, corP, bordaP, lblP] = prios[os.prioridade] || prios.media;
+
+  const foto = (titulo, src, vazio) => `
+    <div class="foto-bloco">
+      <div class="foto-titulo">📷 ${titulo}</div>
+      ${src ? `<img src="${src}" alt="${titulo}">` : `<div class="foto-vazia">${vazio}</div>`}
+    </div>`;
+
+  const historico = (os.historico || []).map(h => `
+    <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>${e(os.numero)} — Impressão</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #1d1d1f; background: #fff; padding: 12mm 14mm;
+  font-size: 11px; line-height: 1.45;
+}
+@page { size: A4; margin: 0; }
+.cabecalho {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 3px solid #c8102e; padding-bottom: 10px; margin-bottom: 12px;
+}
+.cab-esq { display: flex; align-items: center; gap: 10px; }
+.logo {
+  width: 46px; height: 46px; background: #1d1d1f; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+}
+.orgao { font-size: 13px; font-weight: 800; letter-spacing: 0.3px; }
+.orgao-sub { font-size: 10.5px; color: #5a6473; }
+.titulo-doc { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #5a6473; text-align: right; }
+.numero-os { font-size: 21px; font-weight: 800; font-family: 'Consolas', monospace; color: #c8102e; }
+.faixa { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.6px; padding: 4px 14px; border-radius: 20px; border: 1.5px solid;
+}
+.pill { font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; border: 1px solid; }
+.secao { margin-bottom: 11px; }
+.secao-titulo {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+  color: #7f0a1c; border-bottom: 1.5px solid #d8dde3; padding-bottom: 3px; margin-bottom: 6px;
+}
+.grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px 14px; }
+.campo .rotulo { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #5a6473; }
+.campo .valor { font-size: 11.5px; font-weight: 600; }
+.descricao-box {
+  border: 1px solid #d8dde3; border-left: 3px solid #c8102e;
+  border-radius: 6px; padding: 8px 10px; font-size: 11.5px; min-height: 44px;
+}
+.fotos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.foto-bloco { border: 1px solid #d8dde3; border-radius: 8px; overflow: hidden; page-break-inside: avoid; }
+.foto-bloco .foto-titulo {
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 5px 9px; background: #f4f5f7; color: #5a6473; border-bottom: 1px solid #d8dde3;
+}
+.foto-bloco img { width: 100%; height: 58mm; object-fit: cover; display: block; }
+.foto-vazia {
+  height: 58mm; display: flex; align-items: center; justify-content: center;
+  color: #aab2bc; font-size: 11px; background: #fafbfc;
+}
+table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+th {
+  text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #5a6473; padding: 4px 8px; border-bottom: 1.5px solid #d8dde3;
+}
+td { padding: 5px 8px; border-bottom: 1px solid #edf0f3; vertical-align: top; }
+td.st { font-weight: 700; white-space: nowrap; }
+.assinaturas {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
+  margin-top: 26px; page-break-inside: avoid;
+}
+.ass { text-align: center; }
+.ass .linha { border-top: 1px solid #1d1d1f; margin-bottom: 4px; margin-top: 28px; }
+.ass .nome { font-size: 10px; font-weight: 700; }
+.ass .cargo { font-size: 9px; color: #5a6473; }
+.rodape {
+  margin-top: 14px; padding-top: 7px; border-top: 1px solid #d8dde3;
+  display: flex; justify-content: space-between; font-size: 8.5px; color: #5a6473;
+}
+</style>
+</head>
+<body>
+<header class="cabecalho">
+  <div class="cab-esq">
+    <div class="logo">🏗️</div>
+    <div>
+      <div class="orgao">PREFEITURA MUNICIPAL DE JOÃO PESSOA</div>
+      <div class="orgao-sub">Secretaria de Infraestrutura — Gestão de Ordens de Serviço</div>
+    </div>
+  </div>
+  <div>
+    <div class="titulo-doc">ORDEM DE SERVIÇO</div>
+    <div class="numero-os">${e(os.numero)}</div>
+  </div>
+</header>
+
+<div class="faixa">
+  <span class="badge" style="background:${bgB};color:${corB};border-color:${bordaB}">${lblB}</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <span class="pill" style="background:${bgP};color:${corP};border-color:${bordaP}">${lblP}</span>
+    ${os.tag ? `<span class="pill" style="background:#efe8fa;color:#6a3fb5;border-color:#d8c8f2">🏷️ ${e(os.tag)}</span>` : ''}
+    ${os.ocorrencias > 1 ? `<span class="pill" style="background:#fff3e0;color:#e07b1a;border-color:#f5cf9b">🔁 Recorrente — ${os.ocorrencias}x desde ${fmtData(os.primeiraOcorrencia || os.criadoEm)}</span>` : ''}
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Dados da Ordem de Serviço</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Tipo de serviço</div><div class="valor">${e(os.tipo) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Aberta em</div><div class="valor">${fmtDataHora(os.criadoEm) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">${os.concluidoEm ? 'Concluída em' : 'Prazo de execução'}</div><div class="valor">${os.concluidoEm ? fmtDataHora(os.concluidoEm) : (os.prazo ? fmtData(os.prazo) : '–')}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Localização</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Endereço</div><div class="valor">${e(os.endereco) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Bairro</div><div class="valor">${e(os.bairro) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Ponto de referência</div><div class="valor">${e(os.referencia) || '–'}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Solicitação e Execução</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Solicitante</div><div class="valor">${e(os.solicitante) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Responsável técnico</div><div class="valor">${e(os.responsavel) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Equipe / Empreiteira</div><div class="valor">${e(os.equipe) || '–'}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Descrição do Serviço</div>
+  <div class="descricao-box">${e(os.descricao) || 'Sem descrição registrada.'}</div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Registro Fotográfico</div>
+  <div class="fotos">
+    ${foto('Foto de abertura', os.fotoAbertura, 'Sem foto de abertura registrada')}
+    ${foto('Foto de conclusão', os.fotoConclusao, 'Sem foto de conclusão registrada')}
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Histórico da O.S.</div>
+  <table>
+    <tr><th style="width:110px">Data / Hora</th><th style="width:115px">Status</th><th>Observação</th></tr>
+    ${historico || '<tr><td colspan="3">Sem registros.</td></tr>'}
+  </table>
+</div>
+
+<div class="assinaturas">
+  <div class="ass"><div class="linha"></div><div class="nome">Responsável Técnico</div><div class="cargo">${e(os.responsavel) || '&nbsp;'}</div></div>
+  <div class="ass"><div class="linha"></div><div class="nome">Executante</div><div class="cargo">${e(os.equipe) || '&nbsp;'}</div></div>
+  <div class="ass"><div class="linha"></div><div class="nome">Fiscalização</div><div class="cargo">Secretaria de Infraestrutura</div></div>
+</div>
+
+<div class="rodape">
+  <span>Documento gerado pelo Sistema de Gestão de O.S. — Secretaria de Infraestrutura</span>
+  <span>Impresso em ${fmtDataHora(new Date().toISOString())}</span>
+</div>
+<scr` + `ipt>window.onload = () => setTimeout(() => window.print(), 250);</scr` + `ipt>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('⚠️ Permita pop-ups para imprimir a O.S.', 3000); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 // ── FOTO GRANDE ───────────────────────────────────────────────────────────────
