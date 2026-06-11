@@ -170,7 +170,27 @@ function parseHistorico(v) {
   return Array.isArray(v) ? v : [];
 }
 
+// fotos: a coluna TEXT guarda um data URI único (legado) ou um array JSON
+// de data URIs (várias fotos). Sempre devolve array.
+function parseFotos(v) {
+  if (!v) return [];
+  if (typeof v === 'string' && v.trim().startsWith('[')) {
+    try { const a = JSON.parse(v); return Array.isArray(a) ? a.filter(Boolean) : []; }
+    catch { return []; }
+  }
+  return [v];
+}
+
+// normaliza para gravação: 0 fotos → NULL, 1 → texto puro, 2+ → JSON
+function serializarFotos(v) {
+  const fotos = Array.isArray(v) ? v.filter(Boolean) : parseFotos(v);
+  if (!fotos.length) return null;
+  return fotos.length === 1 ? fotos[0] : JSON.stringify(fotos);
+}
+
 function mapRow(r, incluirFotos) {
+  const fotosAbertura = parseFotos(r.foto_abertura);
+  const fotosConclusao = parseFotos(r.foto_conclusao);
   return {
     id: r.id, numero: r.numero, tipo: r.tipo, descricao: r.descricao,
     endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
@@ -179,10 +199,11 @@ function mapRow(r, incluirFotos) {
     ocorrencias: r.ocorrencias || 1,
     primeiraOcorrencia: r.primeira_ocorrencia,
     tag: r.tag || '',
-    temFotoAbertura: !!r.foto_abertura,
-    temFotoConclusao: !!r.foto_conclusao,
-    fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
-    fotoConclusao: incluirFotos ? (r.foto_conclusao || null) : undefined,
+    temFotoAbertura: fotosAbertura.length > 0,
+    temFotoConclusao: fotosConclusao.length > 0,
+    fotoAbertura: incluirFotos ? (fotosAbertura[0] || null) : undefined,
+    fotosAbertura: incluirFotos ? fotosAbertura : undefined,
+    fotoConclusao: incluirFotos ? (fotosConclusao[0] || null) : undefined,
     historico: parseHistorico(r.historico),
     criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
   };
@@ -220,8 +241,8 @@ app.get('/api/ordens', async (req, res) => {
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
              ocorrencias, primeira_ocorrencia, tag,
-             (foto_abertura  IS NOT NULL AND foto_abertura::text  <> '') AS tem_abertura,
-             (foto_conclusao IS NOT NULL AND foto_conclusao::text <> '') AS tem_conclusao,
+             (foto_abertura  IS NOT NULL AND foto_abertura::text  NOT IN ('', '[]')) AS tem_abertura,
+             (foto_conclusao IS NOT NULL AND foto_conclusao::text NOT IN ('', '[]')) AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `);
@@ -259,7 +280,7 @@ function valoresInsert(o, numero, criadoEm) {
     Math.max(1, parseInt(o.ocorrencias, 10) || 1),
     validarData(o.primeiraOcorrencia) ? o.primeiraOcorrencia : null,
     (o.tag || '').toString().trim().slice(0, 40),
-    o.fotoAbertura || null, historico, data,
+    serializarFotos(o.fotoAbertura), historico, data,
   ];
 }
 
@@ -358,8 +379,8 @@ app.put('/api/ordens/:id', async (req, res) => {
     const o = req.body;
     const atual = await pool.query('SELECT foto_abertura, foto_conclusao, referencia FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
-    const fotoAbertura  = o.fotoAbertura  !== undefined ? o.fotoAbertura  : atual.rows[0].foto_abertura;
-    const fotoConclusao = o.fotoConclusao !== undefined ? o.fotoConclusao : atual.rows[0].foto_conclusao;
+    const fotoAbertura  = o.fotoAbertura  !== undefined ? serializarFotos(o.fotoAbertura)  : atual.rows[0].foto_abertura;
+    const fotoConclusao = o.fotoConclusao !== undefined ? serializarFotos(o.fotoConclusao) : atual.rows[0].foto_conclusao;
     // referencia só muda se vier no body (ex.: GPS capturado na validação)
     const referencia = o.referencia !== undefined ? o.referencia : atual.rows[0].referencia;
     const { rows } = await pool.query(
