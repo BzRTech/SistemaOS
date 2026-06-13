@@ -75,6 +75,8 @@ body {
 .painel {
   background: white; border-radius: 14px; padding: 20px;
   box-shadow: var(--sombra);
+  min-width: 0; /* permite o item do grid encolher (mapa/tabelas não estouram a largura) */
+  overflow: hidden;
 }
 .painel h2 {
   font-size: 14px; font-weight: 700; color: var(--primaria-escura);
@@ -120,11 +122,13 @@ tr:hover td { background: #fafbfc; }
 }
 
 /* MAPA */
-#mapa { height: 460px; border-radius: 12px; z-index: 1; }
+#mapa { height: clamp(320px, 60vh, 560px); border-radius: 12px; z-index: 1; }
 .mapa-vazio {
-  height: 460px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: clamp(320px, 60vh, 560px); display: flex; flex-direction: column; align-items: center; justify-content: center;
   color: var(--cinza-texto); font-size: 14px; gap: 6px; background: var(--cinza-bg); border-radius: 12px;
 }
+@media (max-width: 600px) { #mapa, .mapa-vazio { height: 62vh; } }
+#recorrentes, #ultimas { overflow-x: auto; } /* tabelas largas rolam no lugar de estourar */
 .mapa-legenda { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 12px; }
 .mapa-legenda span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cinza-texto); }
 .leg-dot { width: 13px; height: 13px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
@@ -256,6 +260,8 @@ function renderMapa(ordens) {
       maxZoom: 19, attribution: '&copy; OpenStreetMap',
     }).addTo(mapa);
     primeiraVez = true;
+    // o container só tem o tamanho final depois do layout; reenquadra ao redimensionar/girar a tela
+    window.addEventListener('resize', () => mapa && reenquadrarMapa());
   }
   if (camadaPontos) camadaPontos.remove();
   camadaPontos = L.layerGroup().addTo(mapa);
@@ -275,8 +281,25 @@ function renderMapa(ordens) {
     L.marker(c, { icon }).bindPopup(popup).addTo(camadaPontos);
     pontos.push(c);
   }
+  ultimosPontos = pontos;
   // enquadra só na 1ª carga; nas atualizações automáticas preserva o zoom/posição
-  if (primeiraVez) mapa.fitBounds(pontos, { padding: [30, 30], maxZoom: 16 });
+  if (primeiraVez) {
+    // garante que o Leaflet conheça o tamanho real do container antes de enquadrar
+    mapa.invalidateSize();
+    reenquadrarMapa();
+    setTimeout(() => { mapa.invalidateSize(); reenquadrarMapa(); }, 250);
+  }
+}
+
+let ultimosPontos = [];
+function reenquadrarMapa() {
+  if (!mapa || !ultimosPontos.length) return;
+  mapa.invalidateSize();
+  if (ultimosPontos.length === 1) {
+    mapa.setView(ultimosPontos[0], 16);
+  } else {
+    mapa.fitBounds(ultimosPontos, { padding: [40, 40], maxZoom: 16 });
+  }
 }
 
 function barras(contagens, total, classe) {
