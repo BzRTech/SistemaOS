@@ -51,9 +51,11 @@ body {
 .conteudo { padding: 22px 28px 40px; max-width: 1400px; margin: 0 auto; }
 
 .cards {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  display: grid; grid-template-columns: repeat(4, 1fr);
   gap: 14px; margin-bottom: 22px;
 }
+@media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .cards { grid-template-columns: 1fr; } }
 .card-stat {
   background: white; border-radius: 14px; padding: 18px;
   box-shadow: var(--sombra); border-top: 4px solid var(--cinza-borda);
@@ -62,6 +64,7 @@ body {
 .card-stat .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cinza-texto); margin-top: 4px; }
 .card-stat.c-total { border-top-color: var(--primaria-escura); }
 .card-stat.c-aberta { border-top-color: var(--azul); }    .card-stat.c-aberta .num { color: var(--azul); }
+.card-stat.c-validada { border-top-color: #8a5fd0; } .card-stat.c-validada .num { color: #6a3fb5; }
 .card-stat.c-andamento { border-top-color: var(--amarelo); } .card-stat.c-andamento .num { color: var(--laranja); }
 .card-stat.c-concluida { border-top-color: var(--verde-medio); } .card-stat.c-concluida .num { color: var(--verde); }
 .card-stat.c-cancelada { border-top-color: var(--vermelho); } .card-stat.c-cancelada .num { color: var(--vermelho); }
@@ -100,6 +103,7 @@ tr:hover td { background: #fafbfc; }
   text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
+.badge-validada { background: #f0e9fb; color: #6a3fb5; }
 .badge-andamento { background: #fff8e6; color: var(--laranja); }
 .badge-concluida { background: var(--verde-claro); color: var(--verde); }
 .badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
@@ -135,6 +139,7 @@ tr:hover td { background: #fafbfc; }
   <div class="cards">
     <div class="card-stat c-total"><div class="num" id="stTotal">–</div><div class="rotulo">Total de O.S.</div></div>
     <div class="card-stat c-aberta"><div class="num" id="stAbertas">–</div><div class="rotulo">Abertas</div></div>
+    <div class="card-stat c-validada"><div class="num" id="stValidadas">–</div><div class="rotulo">Validadas</div></div>
     <div class="card-stat c-andamento"><div class="num" id="stAndamento">–</div><div class="rotulo">Em andamento</div></div>
     <div class="card-stat c-concluida"><div class="num" id="stConcluidas">–</div><div class="rotulo">Concluídas</div></div>
     <div class="card-stat c-cancelada"><div class="num" id="stCanceladas">–</div><div class="rotulo">Canceladas</div></div>
@@ -178,7 +183,7 @@ function fmtDataHora(iso) {
   return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
 }
 function labelStatus(s) {
-  return { aberta:'Aberta', andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
+  return { aberta:'Aberta', validada:'Validada', andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
 }
 function urlMapa(os) {
   const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
@@ -201,6 +206,7 @@ function render(ordens) {
   const recorrentes = ordens.filter(o => (o.ocorrencias||1) > 1);
   document.getElementById('stTotal').textContent = total;
   document.getElementById('stAbertas').textContent = c('aberta');
+  document.getElementById('stValidadas').textContent = c('validada');
   document.getElementById('stAndamento').textContent = c('andamento');
   document.getElementById('stConcluidas').textContent = c('concluida');
   document.getElementById('stCanceladas').textContent = c('cancelada');
