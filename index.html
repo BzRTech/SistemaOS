@@ -861,7 +861,7 @@ function renderLista() {
       <div class="os-fotos-row">
         <div class="foto-pill ${os.temFotoAbertura?'tem':'nao'}">📷 Abertura ${os.temFotoAbertura?'✓':'–'}</div>
         <div class="foto-pill ${os.temFotoConclusao?'tem':'nao'}">📸 Conclusão ${os.temFotoConclusao?'✓':'–'}</div>
-        ${os.endereco?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
+        ${urlMapa(os)?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
       </div>
     </div>`).join('');
 }
@@ -1031,7 +1031,7 @@ async function abrirDetalhes(id) {
         <div style="font-size:11px;font-weight:700;color:var(--cinza-texto);margin-bottom:5px;text-transform:uppercase">Descrição</div>
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}
-      ${os.endereco?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
     </div>
 
     <!-- FOTO ABERTURA -->
