@@ -1294,10 +1294,11 @@ const MAPA_COLUNAS = {
   prioridade:  ['prioridade', 'urgencia', 'severidade', 'gravidade'],
   prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
   tipo:        ['subtipo', 'subtype', 'tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria', 'type'],
-  quantidade:  ['record_count', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
-  criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
+  quantidade:  ['record_count', 'ocorrencias', 'quantidade', 'qtd', 'qtd_registros', 'registros', 'contagem'],
+  criadoEm:    ['data', 'data_alerta', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
   latitude:    ['latitude', 'lat'],
   longitude:   ['longitude', 'lng', 'long', 'lon'],
+  coordenadas: ['coordenadas', 'coordenada', 'coords', 'lat_long', 'lat_lng', 'latlng', 'localizacao_gps'],
 };
 
 function mapearColunas(cabecalhos) {
@@ -1397,10 +1398,18 @@ function processarCSV(texto, nomeArquivo) {
   for (const linha of linhas.slice(1)) {
     const endereco = pega(linha, 'endereco');
     let descricao = pega(linha, 'descricao');
-    if (!endereco && !descricao) continue;
+
+    // coordenadas: aceita colunas separadas (lat/long) ou uma coluna única "Coordenadas"
+    let lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
+    if (!lat || !lng) {
+      const m = pega(linha, 'coordenadas').match(/(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)/);
+      if (m) { lat = m[1]; lng = m[2]; }
+    }
+
+    // mantém a linha se tiver endereço, descrição OU coordenadas (descarta só as sem nada)
+    if (!endereco && !descricao && !(lat && lng)) continue;
 
     let referencia = pega(linha, 'referencia');
-    const lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
     if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
     if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
     const data = normalizarDataCSV(pega(linha, 'criadoEm'));
@@ -1410,6 +1419,7 @@ function processarCSV(texto, nomeArquivo) {
       descricao, endereco,
       bairro: pega(linha, 'bairro'),
       referencia,
+      coord: (lat && lng) ? `${lat},${lng}` : '',
       solicitante: pega(linha, 'solicitante'),
       responsavel: pega(linha, 'responsavel'),
       equipe: pega(linha, 'equipe'),
@@ -1427,7 +1437,10 @@ function processarCSV(texto, nomeArquivo) {
   if (agrupar) {
     const grupos = new Map();
     for (const it of itens) {
-      const chave = `${(it.endereco || it.descricao).toLowerCase()}|${(it.bairro || '').toLowerCase()}`;
+      // agrupa por endereço+bairro; sem endereço, agrupa pela coordenada exata
+      const chave = it.endereco
+        ? `${it.endereco.toLowerCase()}|${(it.bairro || '').toLowerCase()}`
+        : (it.coord ? `coord:${it.coord}` : `desc:${it.descricao.toLowerCase()}`);
       const g = grupos.get(chave);
       if (!g) { grupos.set(chave, { ...it }); continue; }
       g.ocorrencias += it.ocorrencias;
