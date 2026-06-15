@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard | Gestão de O.S.</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<script src="/vendor/leaflet.js"></script>
 <style>
 :root {
   /* paleta do brasão de João Pessoa */
@@ -75,6 +77,8 @@ body {
 .painel {
   background: white; border-radius: 14px; padding: 20px;
   box-shadow: var(--sombra);
+  min-width: 0; /* permite o item do grid encolher (mapa/tabelas não estouram a largura) */
+  overflow: hidden;
 }
 .painel h2 {
   font-size: 14px; font-weight: 700; color: var(--primaria-escura);
@@ -118,6 +122,26 @@ tr:hover td { background: #fafbfc; }
   background: var(--vermelho-claro); color: var(--vermelho);
   padding: 14px 18px; border-radius: 10px; margin-bottom: 18px; font-weight: 600; font-size: 14px;
 }
+
+/* MAPA */
+#mapa { height: clamp(320px, 60vh, 560px); border-radius: 12px; z-index: 1; }
+.mapa-vazio {
+  height: clamp(320px, 60vh, 560px); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--cinza-texto); font-size: 14px; gap: 6px; background: var(--cinza-bg); border-radius: 12px;
+}
+@media (max-width: 600px) { #mapa, .mapa-vazio { height: 62vh; } }
+#recorrentes, #ultimas { overflow-x: auto; } /* tabelas largas rolam no lugar de estourar */
+.mapa-legenda { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 12px; }
+.mapa-legenda span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cinza-texto); }
+.leg-dot { width: 13px; height: 13px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
+.mkr {
+  width: 16px; height: 16px; border-radius: 50%; border: 2px solid white;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4); cursor: pointer;
+}
+.mkr-rec { width: 22px; height: 22px; font-size: 11px; line-height: 18px; text-align: center; font-weight: 800; color: white; }
+.leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
+.leaflet-popup-content .pop-num { font-family: monospace; font-weight: 700; color: var(--primaria); }
+.leaflet-popup-content a { color: var(--azul); text-decoration: none; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -148,6 +172,18 @@ tr:hover td { background: #fafbfc; }
   </div>
 
   <div class="paineis">
+    <div class="painel painel-largo">
+      <h2>🗺️ Mapa dos pontos coletados <span id="mapaContador" style="font-weight:400;color:var(--cinza-texto);font-size:12px"></span></h2>
+      <div id="mapaWrap"><div class="mapa-vazio">Carregando mapa...</div></div>
+      <div class="mapa-legenda">
+        <span><span class="leg-dot" style="background:#1a6eb4"></span> Aberta</span>
+        <span><span class="leg-dot" style="background:#8a5fd0"></span> Validada</span>
+        <span><span class="leg-dot" style="background:#e07b1a"></span> Em andamento</span>
+        <span><span class="leg-dot" style="background:#2d9e65"></span> Concluída</span>
+        <span><span class="leg-dot" style="background:#d32f2f"></span> Cancelada</span>
+        <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente (nº de ocorrências)</span>
+      </div>
+    </div>
     <div class="painel">
       <h2>🏘️ O.S. por bairro / cidade</h2>
       <div id="porBairro"><div class="vazio">Carregando...</div></div>
@@ -185,10 +221,87 @@ function fmtDataHora(iso) {
 function labelStatus(s) {
   return { aberta:'Aberta', validada:'Validada', andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
 }
-function urlMapa(os) {
+function coordsDe(os) {
   const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
-  const q = m ? `${m[1]},${m[2]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
+  if (!m) return null;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return [lat, lng];
+}
+function urlMapa(os) {
+  const c = coordsDe(os);
+  const q = c ? `${c[0]},${c[1]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
   return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
+}
+
+const COR_STATUS = {
+  aberta: '#1a6eb4', validada: '#8a5fd0', andamento: '#e07b1a',
+  concluida: '#2d9e65', cancelada: '#d32f2f',
+};
+
+let mapa = null, camadaPontos = null;
+function renderMapa(ordens) {
+  const comCoord = ordens.map(o => ({ o, c: coordsDe(o) })).filter(x => x.c);
+  document.getElementById('mapaContador').textContent =
+    comCoord.length ? `· ${comCoord.length} ponto(s)` : '';
+
+  if (!window.L) return; // Leaflet não carregou (sem internet)
+  if (!comCoord.length) {
+    if (mapa) { mapa.remove(); mapa = null; }
+    document.getElementById('mapaWrap').innerHTML =
+      '<div class="mapa-vazio">📍<div>Nenhuma O.S. com coordenadas ainda.</div></div>';
+    return;
+  }
+
+  // cria o mapa na primeira vez
+  let primeiraVez = false;
+  if (!mapa) {
+    document.getElementById('mapaWrap').innerHTML = '<div id="mapa"></div>';
+    mapa = L.map('mapa', { scrollWheelZoom: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap',
+    }).addTo(mapa);
+    primeiraVez = true;
+    // o container só tem o tamanho final depois do layout; reenquadra ao redimensionar/girar a tela
+    window.addEventListener('resize', () => mapa && reenquadrarMapa());
+  }
+  if (camadaPontos) camadaPontos.remove();
+  camadaPontos = L.layerGroup().addTo(mapa);
+
+  const pontos = [];
+  for (const { o, c } of comCoord) {
+    const cor = COR_STATUS[o.status] || '#5a6473';
+    const rec = (o.ocorrencias || 1) > 1;
+    const icon = rec
+      ? L.divIcon({ className: '', html: `<div class="mkr mkr-rec" style="background:${cor}">${o.ocorrencias}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] })
+      : L.divIcon({ className: '', html: `<div class="mkr" style="background:${cor}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
+    const popup = `
+      <div class="pop-num">${esc(o.numero)}</div>
+      <div>${esc(o.endereco || '(sem endereço)')}${o.bairro ? ', ' + esc(o.bairro) : ''}</div>
+      <div style="margin:4px 0"><span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span>${rec ? ` <span class="pill-rec">🔁 ${o.ocorrencias}x</span>` : ''}</div>
+      <a href="https://www.google.com/maps/search/?api=1&query=${c[0]},${c[1]}" target="_blank">🗺️ Abrir no Google Maps</a>`;
+    L.marker(c, { icon }).bindPopup(popup).addTo(camadaPontos);
+    pontos.push(c);
+  }
+  ultimosPontos = pontos;
+  // enquadra só na 1ª carga; nas atualizações automáticas preserva o zoom/posição
+  if (primeiraVez) {
+    // garante que o Leaflet conheça o tamanho real do container antes de enquadrar
+    mapa.invalidateSize();
+    reenquadrarMapa();
+    setTimeout(() => { mapa.invalidateSize(); reenquadrarMapa(); }, 250);
+  }
+}
+
+let ultimosPontos = [];
+function reenquadrarMapa() {
+  if (!mapa || !ultimosPontos.length) return;
+  mapa.invalidateSize();
+  if (ultimosPontos.length === 1) {
+    mapa.setView(ultimosPontos[0], 16);
+  } else {
+    mapa.fitBounds(ultimosPontos, { padding: [40, 40], maxZoom: 16 });
+  }
 }
 
 function barras(contagens, total, classe) {
@@ -220,6 +333,8 @@ function render(ordens) {
   };
   document.getElementById('porBairro').innerHTML = barras(agrupa('bairro').slice(0,12), total, 'azul');
   document.getElementById('porTipo').innerHTML = barras(agrupa('tipo').slice(0,10), total);
+
+  renderMapa(ordens);
 
   const topRec = recorrentes.sort((a,b) => (b.ocorrencias||0)-(a.ocorrencias||0)).slice(0,15);
   document.getElementById('recorrentes').innerHTML = topRec.length ? `

@@ -114,6 +114,7 @@ body {
 }
 .os-card:active { transform: scale(0.98); }
 .os-card.aberta { border-left-color: var(--azul); }
+.os-card.validada { border-left-color: #8a5fd0; }
 .os-card.andamento { border-left-color: var(--amarelo); }
 .os-card.concluida { border-left-color: var(--verde-medio); }
 .os-card.cancelada { border-left-color: var(--vermelho); }
@@ -126,6 +127,7 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
+.badge-validada { background: #f0e9fb; color: #6a3fb5; }
 .badge-andamento { background: #fff8e6; color: var(--laranja); }
 .badge-concluida { background: var(--verde-claro); color: var(--verde); }
 .badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
@@ -200,6 +202,18 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
   font-size: 14px; display: flex; align-items: center; justify-content: center;
 }
+.fotos-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+  gap: 8px; margin-top: 10px;
+}
+.foto-thumb { position: relative; }
+.foto-thumb img {
+  width: 100%; height: 105px; object-fit: cover; display: block;
+  border-radius: 10px; border: 2px solid var(--cinza-borda); cursor: pointer;
+}
+.foto-thumb .foto-remove-btn { top: 4px; right: 4px; width: 24px; height: 24px; font-size: 12px; }
+.foto-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.foto-botoes .foto-upload-area { padding: 12px 8px; }
 
 /* BTNS */
 .btn {
@@ -473,6 +487,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   <div class="filter-chips">
     <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
     <div class="chip" onclick="setFiltro('aberta',this)">🔵 Abertas</div>
+    <div class="chip" onclick="setFiltro('validada',this)">🟣 Validadas</div>
     <div class="chip" onclick="setFiltro('andamento',this)">🟡 Andamento</div>
     <div class="chip" onclick="setFiltro('concluida',this)">🟢 Concluídas</div>
     <div class="chip" onclick="setFiltro('cancelada',this)">🔴 Canceladas</div>
@@ -533,6 +548,11 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <label class="form-label">Ponto de Referência</label>
       <input class="form-input" type="text" id="novaReferencia" placeholder="Próximo a... / Em frente ao...">
     </div>
+    <div class="form-group">
+      <label class="form-label">🧭 Coordenadas <span style="font-weight:400;color:var(--cinza-texto)">(opcional)</span></label>
+      <input class="form-input" type="text" id="novaCoordenadas" placeholder="-7.1195, -34.8450" inputmode="text">
+      <div style="font-size:11px;color:var(--cinza-texto);margin-top:4px">Se preenchidas, o botão do mapa abre o ponto exato em vez do endereço.</div>
+    </div>
   </div>
 
   <div class="form-card">
@@ -566,14 +586,21 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   </div>
 
   <div class="form-card">
-    <div class="form-card-title">📷 Foto de Abertura <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(estado inicial)</span></div>
-    <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">Tire uma foto do local antes do início do serviço.</p>
-    <div class="foto-upload-area" id="uploadAberturaArea" onclick="document.getElementById('inputFotoAbertura').click()">
-      <input type="file" id="inputFotoAbertura" accept="image/*" capture="environment" style="display:none" onchange="selecionarFoto(this,'abertura')">
-      <div class="foto-upload-icon">📷</div>
-      <div class="foto-upload-text">Toque para tirar foto ou escolher da galeria</div>
-      <div class="foto-upload-sub">1 foto · JPG, PNG · comprimido automaticamente</div>
+    <div class="form-card-title">📷 Fotos de Abertura <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(estado inicial)</span></div>
+    <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">Tire fotos do local antes do início do serviço ou escolha da galeria (até 10).</p>
+    <div class="foto-botoes" style="margin-top:0">
+      <div class="foto-upload-area" onclick="document.getElementById('inputFotoAberturaCam').click()">
+        <input type="file" id="inputFotoAberturaCam" accept="image/*" capture="environment" style="display:none" onchange="selecionarFoto(this,'abertura')">
+        <div class="foto-upload-icon">📷</div>
+        <div class="foto-upload-text">Tirar foto</div>
+      </div>
+      <div class="foto-upload-area" onclick="document.getElementById('inputFotoAberturaGal').click()">
+        <input type="file" id="inputFotoAberturaGal" accept="image/*" multiple style="display:none" onchange="selecionarFoto(this,'abertura')">
+        <div class="foto-upload-icon">🖼️</div>
+        <div class="foto-upload-text">Da galeria</div>
+      </div>
     </div>
+    <div class="foto-upload-sub" style="text-align:center;margin-top:6px">JPG, PNG · comprimidas automaticamente</div>
     <div id="previewFotoAbertura"></div>
   </div>
 
@@ -676,7 +703,7 @@ const S = {
   bairroFiltro: 'todos',
   tagFiltro: 'todos',
   busca: '',
-  fotoAbertura: null,   // base64
+  fotosAbertura: [],    // base64[] (novas O.S. aceitam várias fotos)
   fotoConclusaoModal: null,
   osAberta: null,       // OS carregada no modal
 };
@@ -773,25 +800,63 @@ function comprimirImagem(file, maxWidth = 900) {
   });
 }
 
+const MAX_FOTOS_ABERTURA = 10;
+
 async function selecionarFoto(input, tipo) {
-  const file = input.files[0];
-  if (!file) return;
-  const b64 = await comprimirImagem(file);
-  input.value = '';
+  const files = [...input.files];
+  if (!files.length) return;
 
   if (tipo === 'abertura') {
-    S.fotoAbertura = b64;
-    renderPreviewFoto('previewFotoAbertura', b64, () => {
-      S.fotoAbertura = null;
-      renderPreviewFoto('previewFotoAbertura', null);
-    });
+    for (const f of files) {
+      if (S.fotosAbertura.length >= MAX_FOTOS_ABERTURA) {
+        toast(`⚠️ Máximo de ${MAX_FOTOS_ABERTURA} fotos de abertura.`, 3000);
+        break;
+      }
+      S.fotosAbertura.push(await comprimirImagem(f));
+    }
+    renderGridFotos('previewFotoAbertura', S.fotosAbertura, 'removerFotoNova', 'verFotoNova');
   } else if (tipo === 'conclusao-modal') {
+    const b64 = await comprimirImagem(files[0]);
     S.fotoConclusaoModal = b64;
     renderPreviewFoto('previewFotoConclusaoModal', b64, () => {
       S.fotoConclusaoModal = null;
       renderPreviewFoto('previewFotoConclusaoModal', null);
     });
   }
+  input.value = '';
+}
+
+function renderGridFotos(containerId, fotos, removerFn, verFn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = fotos.length ? `<div class="fotos-grid">${fotos.map((f, i) => `
+    <div class="foto-thumb">
+      <img src="${f}" onclick="${verFn}(${i})" alt="Foto ${i + 1}">
+      ${removerFn ? `<button class="foto-remove-btn" onclick="${removerFn}(${i})">✕</button>` : ''}
+    </div>`).join('')}</div>` : '';
+}
+
+function verFotoNova(i) { if (S.fotosAbertura[i]) verFoto(S.fotosAbertura[i]); }
+function removerFotoNova(i) {
+  S.fotosAbertura.splice(i, 1);
+  renderGridFotos('previewFotoAbertura', S.fotosAbertura, 'removerFotoNova', 'verFotoNova');
+}
+
+function verFotoAbertura(i) {
+  const f = (S.osAberta?.fotosAbertura || [])[i];
+  if (f) verFoto(f);
+}
+
+async function removerFotoAbertura(i) {
+  const os = S.osAberta;
+  if (!os) return;
+  if (!confirm('Excluir esta foto de abertura? Esta ação não pode ser desfeita.')) return;
+  const fotos = [...(os.fotosAbertura || [])];
+  fotos.splice(i, 1);
+  await atualizarOS(os.id, {
+    status: os.status, responsavel: os.responsavel || '', equipe: os.equipe || '',
+    historico: os.historico || [], fotoAbertura: fotos,
+  });
 }
 
 function renderPreviewFoto(containerId, src, onRemove) {
@@ -935,6 +1000,16 @@ async function salvarNovaOS() {
     return;
   }
 
+  const coordTxt = v('novaCoordenadas');
+  const coord = coordTxt ? parseCoordenadas(coordTxt) : null;
+  if (coordTxt && !coord) {
+    alertEl.innerHTML = `<div class="alert alert-error">⚠️ Coordenadas inválidas. Use o formato: -7.1195, -34.8450</div>`;
+    alertEl.scrollIntoView({ behavior:'smooth' });
+    return;
+  }
+  let referencia = v('novaReferencia');
+  if (coord) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${coord.lat}, ${coord.lng}`;
+
   const btn = document.getElementById('btnSalvarNova');
   btn.disabled = true;
   btn.textContent = '⏳ Salvando...';
@@ -942,14 +1017,14 @@ async function salvarNovaOS() {
   const os = {
     tipo, descricao, endereco,
     bairro: v('novaBairro'),
-    referencia: v('novaReferencia'),
+    referencia,
     solicitante,
     responsavel: v('novaResponsavel'),
     equipe: v('novaEquipe'),
     prioridade: v('novaPrioridade'),
     prazo: v('novaPrazo') || null,
     tag: v('novaTag'),
-    fotoAbertura: S.fotoAbertura || null,
+    fotoAbertura: S.fotosAbertura,
   };
 
   try {
@@ -960,7 +1035,7 @@ async function salvarNovaOS() {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
-    S.ordens.unshift({ ...data, fotoAbertura: undefined, fotoConclusao: undefined });
+    S.ordens.unshift({ ...data, fotoAbertura: undefined, fotosAbertura: undefined, fotoConclusao: undefined });
     alertEl.innerHTML = `<div class="alert alert-success">✅ O.S. ${data.numero} aberta com sucesso!</div>`;
     atualizarStats();
     setTimeout(() => { showSection('lista'); renderLista(); }, 1200);
@@ -975,11 +1050,11 @@ async function salvarNovaOS() {
 
 function limparFormNova() {
   ['novaTipo','novaDescricao','novaEndereco','novaBairro','novaReferencia',
-   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo','novaTag'].forEach(id => {
+   'novaSolicitante','novaResponsavel','novaEquipe','novaPrazo','novaTag','novaCoordenadas'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('novaPrioridade').value = 'media';
-  S.fotoAbertura = null;
+  S.fotosAbertura = [];
   document.getElementById('previewFotoAbertura').innerHTML = '';
   document.getElementById('alertNova').innerHTML = '';
 }
@@ -1032,21 +1107,32 @@ async function abrirDetalhes(id) {
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}
       ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
     </div>
 
-    <!-- FOTO ABERTURA -->
+    <!-- FOTOS ABERTURA -->
     <div class="form-card">
-      <div class="form-card-title">📷 Foto de Abertura</div>
-      ${os.fotoAbertura
-        ? `<img src="${os.fotoAbertura}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:260px;object-fit:cover" onclick="verFoto('${os.fotoAbertura}')" alt="Foto abertura">`
+      <div class="form-card-title">📷 Fotos de Abertura${(os.fotosAbertura||[]).length ? ` <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${os.fotosAbertura.length})</span>` : ''}</div>
+      ${(os.fotosAbertura||[]).length
+        ? `<div class="fotos-grid" style="margin-top:0">${os.fotosAbertura.map((f, i) => `
+            <div class="foto-thumb">
+              <img src="${f}" onclick="verFotoAbertura(${i})" alt="Foto abertura ${i + 1}">
+              ${!finalizada ? `<button class="foto-remove-btn" onclick="removerFotoAbertura(${i})">✕</button>` : ''}
+            </div>`).join('')}</div>`
         : `<div style="text-align:center;padding:24px;color:var(--cinza-texto)">
             <div style="font-size:36px;margin-bottom:8px">📷</div>
             <p style="font-size:13px">Nenhuma foto de abertura registrada.</p>
            </div>`}
-      ${!finalizada && !os.fotoAbertura ? `
-        <div class="foto-upload-area" style="margin-top:10px" onclick="document.getElementById('inputAddAbertura').click()">
-          <input type="file" id="inputAddAbertura" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
-          <div class="foto-upload-text">+ Adicionar foto de abertura</div>
+      ${!finalizada ? `
+        <div class="foto-botoes">
+          <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaCam').click()">
+            <input type="file" id="inputAddAberturaCam" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
+            <div class="foto-upload-text">📷 Tirar foto</div>
+          </div>
+          <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaGal').click()">
+            <input type="file" id="inputAddAberturaGal" accept="image/*" multiple style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
+            <div class="foto-upload-text">🖼️ Da galeria</div>
+          </div>
         </div>` : ''}
     </div>
 
@@ -1060,9 +1146,16 @@ async function abrirDetalhes(id) {
             <p style="font-size:13px">Nenhuma foto de conclusão ainda.</p>
            </div>`}
       ${!finalizada ? `
-        <div class="foto-upload-area" style="margin-top:10px" onclick="document.getElementById('inputAddConclusao').click()">
-          <input type="file" id="inputAddConclusao" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'conclusao')">
-          <div class="foto-upload-text">${os.fotoConclusao ? '🔄 Substituir foto de conclusão' : '+ Adicionar foto de conclusão / depois'}</div>
+        <div style="font-size:12px;color:var(--cinza-texto);text-align:center;margin-top:8px">${os.fotoConclusao ? '🔄 Substituir foto de conclusão:' : 'Adicionar foto de conclusão / depois:'}</div>
+        <div class="foto-botoes" style="margin-top:6px">
+          <div class="foto-upload-area" onclick="document.getElementById('inputAddConclusaoCam').click()">
+            <input type="file" id="inputAddConclusaoCam" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'conclusao')">
+            <div class="foto-upload-text">📷 Tirar foto</div>
+          </div>
+          <div class="foto-upload-area" onclick="document.getElementById('inputAddConclusaoGal').click()">
+            <input type="file" id="inputAddConclusaoGal" accept="image/*" style="display:none" onchange="adicionarFotoNaOS(this,'conclusao')">
+            <div class="foto-upload-text">🖼️ Da galeria</div>
+          </div>
         </div>
         <div id="previewFotoConclusaoModal"></div>` : ''}
     </div>
@@ -1096,7 +1189,8 @@ async function abrirDetalhes(id) {
     <div class="form-card">
       <div class="form-card-title">⚡ Alterar Status</div>
       <div class="btn-row">
-        ${os.status==='aberta'?`<button class="btn btn-warning" onclick="mudarStatus('andamento')">🔧 Iniciar Atendimento</button>`:''}
+        ${os.status==='aberta'?`<button class="btn btn-primary" onclick="mudarStatus('validada')">✔️ Validar O.S.</button>`:''}
+        ${os.status==='validada'?`<button class="btn btn-warning" onclick="mudarStatus('andamento')">🔧 Iniciar Atendimento</button>`:''}
         ${os.status==='andamento'?`<button class="btn btn-success" onclick="mudarStatus('concluida')">✅ Concluir O.S.</button>`:''}
         <button class="btn btn-danger" onclick="mudarStatus('cancelada')">❌ Cancelar</button>
       </div>
@@ -1125,6 +1219,31 @@ function fecharModal() {
 }
 
 // ── AÇÕES ─────────────────────────────────────────────────────────────────────
+
+// GPS do aparelho (requer HTTPS e permissão do usuário)
+function capturarGPS() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({
+        lat: +pos.coords.latitude.toFixed(6),
+        lng: +pos.coords.longitude.toFixed(6),
+        acc: Math.round(pos.coords.accuracy || 0),
+      }),
+      () => resolve(null), // negado / indisponível: segue sem GPS
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  });
+}
+
+// troca (ou acrescenta) o trecho "Coordenadas: lat, lng" da referência
+function aplicarCoordenadas(referencia, gps) {
+  const trecho = `Coordenadas: ${gps.lat}, ${gps.lng}`;
+  const re = /Coordenadas:\s*-?\d+(?:\.\d+)?\s*[,;]\s*-?\d+(?:\.\d+)?/i;
+  if (re.test(referencia || '')) return referencia.replace(re, trecho);
+  return (referencia ? referencia + ' · ' : '') + trecho;
+}
+
 async function mudarStatus(novoStatus) {
   const os = S.osAberta;
   if (!os) return;
@@ -1134,8 +1253,24 @@ async function mudarStatus(novoStatus) {
     return;
   }
 
-  const obsMap = { andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
-  const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs: obsMap[novoStatus] }];
+  const obsMap = { validada:'O.S. validada', andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
+  let obs = obsMap[novoStatus];
+
+  // na validação, quem valida está no local: atualiza as coordenadas pelo GPS
+  let referencia;
+  if (novoStatus === 'validada') {
+    toast('📡 Obtendo localização do aparelho...', 9000);
+    const gps = await capturarGPS();
+    if (gps) {
+      referencia = aplicarCoordenadas(os.referencia || '', gps);
+      obs += ` — localização confirmada pelo GPS (${gps.lat}, ${gps.lng}${gps.acc ? `, ±${gps.acc} m` : ''})`;
+      toast('📍 Coordenadas atualizadas pela localização do aparelho!');
+    } else {
+      toast('⚠️ GPS indisponível — validada sem atualizar a localização.', 3000);
+    }
+  }
+
+  const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs }];
 
   const body = {
     status: novoStatus,
@@ -1143,6 +1278,7 @@ async function mudarStatus(novoStatus) {
     equipe: os.equipe || '',
     historico,
     fotoConclusao: S.fotoConclusaoModal || os.fotoConclusao || null,
+    ...(referencia !== undefined && { referencia }),
     ...(novoStatus === 'concluida' && { concluidoEm: new Date().toISOString() }),
   };
 
@@ -1160,11 +1296,12 @@ async function adicionarObs() {
 
 async function adicionarFotoNaOS(input, tipo) {
   const os = S.osAberta;
-  if (!os || !input.files[0]) return;
-  const b64 = await comprimirImagem(input.files[0]);
-  input.value = '';
+  const files = [...input.files];
+  if (!os || !files.length) return;
 
   if (tipo === 'conclusao') {
+    const b64 = await comprimirImagem(files[0]);
+    input.value = '';
     S.fotoConclusaoModal = b64;
     renderPreviewFoto('previewFotoConclusaoModal', b64, () => {
       S.fotoConclusaoModal = null;
@@ -1174,15 +1311,23 @@ async function adicionarFotoNaOS(input, tipo) {
     return;
   }
 
-  // abertura
-  const body = {
+  // abertura: acrescenta às fotos existentes
+  const fotos = [...(os.fotosAbertura || [])];
+  for (const f of files) {
+    if (fotos.length >= MAX_FOTOS_ABERTURA) {
+      toast(`⚠️ Máximo de ${MAX_FOTOS_ABERTURA} fotos de abertura.`, 3000);
+      break;
+    }
+    fotos.push(await comprimirImagem(f));
+  }
+  input.value = '';
+  await atualizarOS(os.id, {
     status: os.status,
     responsavel: os.responsavel||'',
     equipe: os.equipe||'',
     historico: os.historico||[],
-    fotoAbertura: b64,
-  };
-  await atualizarOS(os.id, body);
+    fotoAbertura: fotos,
+  });
 }
 
 async function atualizarOS(id, body) {
@@ -1195,7 +1340,7 @@ async function atualizarOS(id, body) {
     if (!r.ok) throw new Error();
     const updated = await r.json();
     const idx = S.ordens.findIndex(o => o.id === id);
-    if (idx >= 0) S.ordens[idx] = { ...S.ordens[idx], ...updated, fotoAbertura: undefined, fotoConclusao: undefined };
+    if (idx >= 0) S.ordens[idx] = { ...S.ordens[idx], ...updated, fotoAbertura: undefined, fotosAbertura: undefined, fotoConclusao: undefined };
     salvarLocal();
     atualizarStats();
     toast('✅ Atualizado com sucesso!');
@@ -1216,6 +1361,222 @@ async function excluirOS() {
   salvarLocal();
   fecharModal();
   toast('🗑️ O.S. excluída.');
+}
+
+// ── IMPRESSÃO ─────────────────────────────────────────────────────────────────
+function imprimirOS() {
+  const os = S.osAberta;
+  if (!os) return;
+  const e = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+  const badges = {
+    aberta:    ['#e8f0fa', '#1a6eb4', '#b3cfe8', '📋 Aberta'],
+    validada:  ['#f0e9fb', '#6a3fb5', '#c9b3ec', '✔ Validada'],
+    andamento: ['#fff8e6', '#e07b1a', '#f5d9a0', '🔧 Em Andamento'],
+    concluida: ['#e8f5ee', '#1a6e45', '#a8d5b8', '✅ Concluída'],
+    cancelada: ['#fdecea', '#d32f2f', '#f3b6b1', '❌ Cancelada'],
+  };
+  const [bgB, corB, bordaB, lblB] = badges[os.status] || badges.aberta;
+  const prios = {
+    alta:  ['#fdecea', '#d32f2f', '#f3b6b1', '🔴 Prioridade Alta'],
+    media: ['#fff8e6', '#e07b1a', '#f5d9a0', '🟡 Prioridade Média'],
+    baixa: ['#e8f5ee', '#1a6e45', '#a8d5b8', '🟢 Prioridade Baixa'],
+  };
+  const [bgP, corP, bordaP, lblP] = prios[os.prioridade] || prios.media;
+
+  const foto = (titulo, src, vazio) => `
+    <div class="foto-bloco">
+      <div class="foto-titulo">📷 ${titulo}</div>
+      ${src ? `<img src="${src}" alt="${titulo}">` : `<div class="foto-vazia">${vazio}</div>`}
+    </div>`;
+
+  const historico = (os.historico || []).map(h => `
+    <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
+
+  // observações registradas manualmente (exclui as mensagens automáticas de status)
+  const ehObsAutomatica = t => /^(Ordem de servi|Importada via CSV|O\.S\. validada|Atendimento iniciado|Serviço concluído|O\.S\. cancelada)/i.test(t || '');
+  const observacoes = (os.historico || []).filter(h => h.obs && !ehObsAutomatica(h.obs));
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>${e(os.numero)} — Impressão</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #1d1d1f; background: #fff; padding: 12mm 14mm;
+  font-size: 11px; line-height: 1.45;
+}
+@page { size: A4; margin: 0; }
+.cabecalho {
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 3px solid #c8102e; padding-bottom: 10px; margin-bottom: 12px;
+}
+.cab-esq { display: flex; align-items: center; gap: 10px; }
+.logo {
+  width: 46px; height: 46px; background: #1d1d1f; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+}
+.orgao { font-size: 13px; font-weight: 800; letter-spacing: 0.3px; }
+.orgao-sub { font-size: 10.5px; color: #5a6473; }
+.titulo-doc { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #5a6473; text-align: right; }
+.numero-os { font-size: 21px; font-weight: 800; font-family: 'Consolas', monospace; color: #c8102e; }
+.faixa { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; }
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.6px; padding: 4px 14px; border-radius: 20px; border: 1.5px solid;
+}
+.pill { font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; border: 1px solid; }
+.secao { margin-bottom: 11px; }
+.secao-titulo {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+  color: #7f0a1c; border-bottom: 1.5px solid #d8dde3; padding-bottom: 3px; margin-bottom: 6px;
+}
+.grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px 14px; }
+.campo .rotulo { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #5a6473; }
+.campo .valor { font-size: 11.5px; font-weight: 600; }
+.descricao-box {
+  border: 1px solid #d8dde3; border-left: 3px solid #c8102e;
+  border-radius: 6px; padding: 8px 10px; font-size: 11.5px; min-height: 44px;
+}
+.obs-item {
+  border: 1px solid #d8dde3; border-left: 3px solid #e07b1a;
+  border-radius: 6px; padding: 7px 10px; font-size: 11px; margin-bottom: 6px;
+}
+.obs-item .obs-data { font-weight: 700; color: #5a6473; font-size: 9.5px; }
+.fotos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.foto-bloco { border: 1px solid #d8dde3; border-radius: 8px; overflow: hidden; page-break-inside: avoid; }
+.foto-bloco .foto-titulo {
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 5px 9px; background: #f4f5f7; color: #5a6473; border-bottom: 1px solid #d8dde3;
+}
+.foto-bloco img { width: 100%; height: 58mm; object-fit: cover; display: block; }
+.foto-vazia {
+  height: 58mm; display: flex; align-items: center; justify-content: center;
+  color: #aab2bc; font-size: 11px; background: #fafbfc;
+}
+table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+th {
+  text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #5a6473; padding: 4px 8px; border-bottom: 1.5px solid #d8dde3;
+}
+td { padding: 5px 8px; border-bottom: 1px solid #edf0f3; vertical-align: top; }
+td.st { font-weight: 700; white-space: nowrap; }
+.assinaturas {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
+  margin-top: 26px; page-break-inside: avoid;
+}
+.ass { text-align: center; }
+.ass .linha { border-top: 1px solid #1d1d1f; margin-bottom: 4px; margin-top: 28px; }
+.ass .nome { font-size: 10px; font-weight: 700; }
+.ass .cargo { font-size: 9px; color: #5a6473; }
+.rodape {
+  margin-top: 14px; padding-top: 7px; border-top: 1px solid #d8dde3;
+  display: flex; justify-content: space-between; font-size: 8.5px; color: #5a6473;
+}
+</style>
+</head>
+<body>
+<header class="cabecalho">
+  <div class="cab-esq">
+    <div class="logo">🏗️</div>
+    <div>
+      <div class="orgao">PREFEITURA MUNICIPAL DE JOÃO PESSOA</div>
+      <div class="orgao-sub">Secretaria de Infraestrutura — Gestão de Ordens de Serviço</div>
+    </div>
+  </div>
+  <div>
+    <div class="titulo-doc">ORDEM DE SERVIÇO</div>
+    <div class="numero-os">${e(os.numero)}</div>
+  </div>
+</header>
+
+<div class="faixa">
+  <span class="badge" style="background:${bgB};color:${corB};border-color:${bordaB}">${lblB}</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <span class="pill" style="background:${bgP};color:${corP};border-color:${bordaP}">${lblP}</span>
+    ${os.tag ? `<span class="pill" style="background:#efe8fa;color:#6a3fb5;border-color:#d8c8f2">🏷️ ${e(os.tag)}</span>` : ''}
+    ${os.ocorrencias > 1 ? `<span class="pill" style="background:#fff3e0;color:#e07b1a;border-color:#f5cf9b">🔁 Recorrente — ${os.ocorrencias}x desde ${fmtData(os.primeiraOcorrencia || os.criadoEm)}</span>` : ''}
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Dados da Ordem de Serviço</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Tipo de serviço</div><div class="valor">${e(os.tipo) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Aberta em</div><div class="valor">${fmtDataHora(os.criadoEm) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">${os.concluidoEm ? 'Concluída em' : 'Prazo de execução'}</div><div class="valor">${os.concluidoEm ? fmtDataHora(os.concluidoEm) : (os.prazo ? fmtData(os.prazo) : '–')}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Localização</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Endereço</div><div class="valor">${e(os.endereco) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Bairro</div><div class="valor">${e(os.bairro) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Ponto de referência</div><div class="valor">${e(os.referencia) || '–'}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Solicitação e Execução</div>
+  <div class="grade">
+    <div class="campo"><div class="rotulo">Solicitante</div><div class="valor">${e(os.solicitante) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Responsável técnico</div><div class="valor">${e(os.responsavel) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">Equipe / Empreiteira</div><div class="valor">${e(os.equipe) || '–'}</div></div>
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Descrição do Serviço</div>
+  <div class="descricao-box">${e(os.descricao) || 'Sem descrição registrada.'}</div>
+</div>
+
+${observacoes.length ? `
+<div class="secao">
+  <div class="secao-titulo">📝 Observações (${observacoes.length})</div>
+  ${observacoes.map(h => `<div class="obs-item"><span class="obs-data">${fmtDataHora(h.data)}</span> — ${e(h.obs)}</div>`).join('')}
+</div>` : ''}
+
+<div class="secao">
+  <div class="secao-titulo">Registro Fotográfico</div>
+  <div class="fotos">
+    ${(os.fotosAbertura && os.fotosAbertura.length
+        ? os.fotosAbertura.map((f, i) => foto(`Foto de abertura${os.fotosAbertura.length > 1 ? ` ${i + 1} de ${os.fotosAbertura.length}` : ''}`, f, '')).join('')
+        : foto('Foto de abertura', null, 'Sem foto de abertura registrada'))}
+    ${foto('Foto de conclusão', os.fotoConclusao, 'Sem foto de conclusão registrada')}
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Histórico da O.S.</div>
+  <table>
+    <tr><th style="width:110px">Data / Hora</th><th style="width:115px">Status</th><th>Observação</th></tr>
+    ${historico || '<tr><td colspan="3">Sem registros.</td></tr>'}
+  </table>
+</div>
+
+<div class="assinaturas">
+  <div class="ass"><div class="linha"></div><div class="nome">Responsável Técnico</div><div class="cargo">${e(os.responsavel) || '&nbsp;'}</div></div>
+  <div class="ass"><div class="linha"></div><div class="nome">Executante</div><div class="cargo">${e(os.equipe) || '&nbsp;'}</div></div>
+  <div class="ass"><div class="linha"></div><div class="nome">Fiscalização</div><div class="cargo">Secretaria de Infraestrutura</div></div>
+</div>
+
+<div class="rodape">
+  <span>Documento gerado pelo Sistema de Gestão de O.S. — Secretaria de Infraestrutura</span>
+  <span>Impresso em ${fmtDataHora(new Date().toISOString())}</span>
+</div>
+<scr` + `ipt>window.onload = () => setTimeout(() => window.print(), 250);</scr` + `ipt>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('⚠️ Permita pop-ups para imprimir a O.S.', 3000); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 // ── FOTO GRANDE ───────────────────────────────────────────────────────────────
@@ -1242,6 +1603,7 @@ function renderRelatorio() {
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
       ${[['aberta','Abertas',c('aberta'),'var(--azul)','var(--azul-claro)'],
+         ['validada','Validadas',c('validada'),'#6a3fb5','#f0e9fb'],
          ['andamento','Andamento',c('andamento'),'var(--laranja)','#fff8e6'],
          ['concluida','Concluídas',c('concluida'),'var(--verde)','var(--verde-claro)'],
          ['cancelada','Canceladas',c('cancelada'),'var(--vermelho)','var(--vermelho-claro)']
@@ -1310,12 +1672,21 @@ const MAPA_COLUNAS = {
   prioridade:  ['prioridade', 'urgencia', 'severidade', 'gravidade'],
   prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
   tipo:        ['subtipo', 'subtype', 'tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria', 'type'],
-  quantidade:  ['record_count', 'ocorrencias', 'quantidade', 'qtd', 'qtd_registros', 'registros', 'contagem'],
+  quantidade:  ['record_count', 'qtd_registros', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
   criadoEm:    ['data', 'data_alerta', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
   latitude:    ['latitude', 'lat'],
   longitude:   ['longitude', 'lng', 'long', 'lon'],
-  coordenadas: ['coordenadas', 'coordenada', 'coords', 'lat_long', 'lat_lng', 'latlng', 'localizacao_gps'],
+  coordenadas: ['coordenadas', 'coordenada', 'coordinates', 'coords', 'ponto', 'lat_lng', 'lat_long', 'latlng', 'localizacao_gps'],
 };
+
+// "−7.143197,-34.845491" → { lat, lng } (valida faixas geográficas)
+function parseCoordenadas(v) {
+  const m = String(v || '').match(/(-?\d{1,3}(?:\.\d+)?)\s*[,;]\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!m) return null;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
 
 function mapearColunas(cabecalhos) {
   const norm = cabecalhos.map(normalizarCabecalho);
@@ -1454,32 +1825,24 @@ function processarCSV(texto, nomeArquivo) {
   for (const linha of linhas.slice(1)) {
     const endereco = pega(linha, 'endereco');
     let descricao = pega(linha, 'descricao');
-
-    // coordenadas: aceita colunas separadas (lat/long) ou uma coluna única "Coordenadas"
-    let lat = pega(linha, 'latitude'), lng = pega(linha, 'longitude');
-    if (!lat || !lng) {
-      const m = pega(linha, 'coordenadas').match(/(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)/);
-      if (m) { lat = m[1]; lng = m[2]; }
-    }
-
-    // mantém a linha se tiver endereço, descrição OU coordenadas (descarta só as sem nada)
-    if (!endereco && !descricao && !(lat && lng)) continue;
+    const coord = parseCoordenadas(pega(linha, 'coordenadas')) ||
+                  parseCoordenadas(pega(linha, 'latitude') + ',' + pega(linha, 'longitude'));
+    if (!endereco && !descricao && !coord) continue; // sem rua nem ponto: nada a localizar
 
     let referencia = pega(linha, 'referencia');
-    if (lat && lng) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${lat}, ${lng}`;
-    if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
+    if (coord) referencia = (referencia ? referencia + ' · ' : '') + `Coordenadas: ${coord.lat}, ${coord.lng}`;
+    if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : coord ? ` — ponto ${coord.lat}, ${coord.lng}` : '');
     const data = normalizarDataCSV(pega(linha, 'criadoEm'));
 
     // sem bairro na planilha? deriva da coordenada (mapa de bairros de João Pessoa)
     let bairro = pega(linha, 'bairro');
-    if (!bairro && lat && lng) bairro = bairroPorCoordenada(lat, lng);
+    if (!bairro && coord) bairro = bairroPorCoordenada(coord.lat, coord.lng);
 
     itens.push({
       tipo: traduzTipo(pega(linha, 'tipo')) || 'Pavimentação / Asfalto',
       descricao, endereco,
       bairro,
       referencia,
-      coord: (lat && lng) ? `${lat},${lng}` : '',
       solicitante: pega(linha, 'solicitante'),
       responsavel: pega(linha, 'responsavel'),
       equipe: pega(linha, 'equipe'),
@@ -1489,6 +1852,8 @@ function processarCSV(texto, nomeArquivo) {
       ocorrencias: Math.max(1, parseInt(pega(linha, 'quantidade'), 10) || 1),
       primeiraOcorrencia: data,
       tag: (document.getElementById('tagImportCSV')?.value || '').trim(),
+      // pontos distintos da mesma rua não devem ser agrupados (~11 m de tolerância)
+      chavePonto: coord ? `${coord.lat.toFixed(4)},${coord.lng.toFixed(4)}` : '',
     });
   }
 
@@ -1497,10 +1862,7 @@ function processarCSV(texto, nomeArquivo) {
   if (agrupar) {
     const grupos = new Map();
     for (const it of itens) {
-      // agrupa por endereço+bairro; sem endereço, agrupa pela coordenada exata
-      const chave = it.endereco
-        ? `${it.endereco.toLowerCase()}|${(it.bairro || '').toLowerCase()}`
-        : (it.coord ? `coord:${it.coord}` : `desc:${it.descricao.toLowerCase()}`);
+      const chave = it.chavePonto || `${(it.endereco || it.descricao).toLowerCase()}|${(it.bairro || '').toLowerCase()}`;
       const g = grupos.get(chave);
       if (!g) { grupos.set(chave, { ...it }); continue; }
       g.ocorrencias += it.ocorrencias;
@@ -1524,9 +1886,9 @@ function processarCSV(texto, nomeArquivo) {
   const recorrentes = csvOrdensParaImportar.filter(o => o.ocorrencias > 1).length;
   const detectadas = Object.keys(idx).map(c => `<code>${c}</code>`).join(', ');
   const amostra = csvOrdensParaImportar.slice(0, 3).map(o =>
-    `<li style="margin-bottom:4px">📍 ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}${o.ocorrencias > 1 ? ` <strong>(🔁 ${o.ocorrencias}x)</strong>` : ''}</li>`).join('');
+    `<li style="margin-bottom:4px">${o.chavePonto ? '🧭' : '📍'} ${o.endereco || '(sem endereço)'}${o.bairro ? ', ' + o.bairro : ''} — ${o.descricao.substring(0, 60)}${o.ocorrencias > 1 ? ` <strong>(🔁 ${o.ocorrencias}x)</strong>` : ''}</li>`).join('');
   preview.innerHTML = `
-    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${totalLinhas} linha(s) → <strong>${csvOrdensParaImportar.length} O.S.</strong>${agrupar && totalLinhas > csvOrdensParaImportar.length ? ` (agrupadas por endereço, ${recorrentes} recorrentes)` : ''}${linhas.length - 1 - totalLinhas > 0 ? ` · ${linhas.length - 1 - totalLinhas} linha(s) sem endereço ignoradas` : ''}</div>
+    <div class="alert alert-info">📄 <strong>${nomeArquivo}</strong>: ${totalLinhas} linha(s) → <strong>${csvOrdensParaImportar.length} O.S.</strong>${agrupar && totalLinhas > csvOrdensParaImportar.length ? ` (agrupadas por ponto/endereço, ${recorrentes} recorrentes)` : ''}${linhas.length - 1 - totalLinhas > 0 ? ` · ${linhas.length - 1 - totalLinhas} linha(s) sem endereço nem coordenadas ignoradas` : ''}</div>
     <div style="font-size:12px;color:var(--cinza-texto);margin-bottom:8px">Colunas reconhecidas: ${detectadas}</div>
     <ul style="font-size:12px;color:var(--cinza-texto);padding-left:16px">${amostra}</ul>`;
   btn.style.display = 'flex';
@@ -1539,19 +1901,28 @@ async function confirmarImportCSV() {
   btn.disabled = true;
   btn.textContent = '⏳ Importando...';
   try {
-    const r = await fetch('/api/ordens/importar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ordens: csvOrdensParaImportar }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
-    preview.innerHTML = `<div class="alert alert-success">✅ ${data.importadas} O.S. importadas com sucesso!${data.ignoradas ? ` (${data.ignoradas} linha(s) ignoradas)` : ''}</div>`;
+    // o servidor aceita até 2000 por chamada; arquivos grandes vão em lotes
+    const LOTE = 1000;
+    const total = csvOrdensParaImportar.length;
+    let importadas = 0, ignoradas = 0;
+    for (let i = 0; i < total; i += LOTE) {
+      if (total > LOTE) btn.textContent = `⏳ Importando... (${Math.min(i + LOTE, total)}/${total})`;
+      const r = await fetch('/api/ordens/importar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordens: csvOrdensParaImportar.slice(i, i + LOTE) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.erro || `Erro ${r.status}`);
+      importadas += data.importadas;
+      ignoradas += data.ignoradas || 0;
+    }
+    preview.innerHTML = `<div class="alert alert-success">✅ ${importadas} O.S. importadas com sucesso!${ignoradas ? ` (${ignoradas} linha(s) ignoradas)` : ''}</div>`;
     csvOrdensParaImportar = [];
     btn.style.display = 'none';
     await carregarOS();
     renderRelatorio();
-    toast(`✅ ${data.importadas} O.S. criadas a partir do CSV!`);
+    toast(`✅ ${importadas} O.S. criadas a partir do CSV!`);
   } catch (e) {
     preview.innerHTML += `<div class="alert alert-error">❌ Erro ao importar: ${e.message}</div>`;
   } finally {
@@ -1619,16 +1990,16 @@ async function testarConexaoSilencioso() {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function labelStatus(s) {
-  return { aberta:'Aberta', andamento:'Em Andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
+  return { aberta:'Aberta', validada:'Validada', andamento:'Em Andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
 }
 function labelPrio(p) {
   return { alta:'🔴 Alta — Urgente', media:'🟡 Média', baixa:'🟢 Baixa' }[p] || p;
 }
 function corStatus(s) {
-  return { aberta:'var(--azul)', andamento:'var(--amarelo)', concluida:'var(--verde-medio)', cancelada:'var(--vermelho)' }[s] || '#888';
+  return { aberta:'var(--azul)', validada:'#8a5fd0', andamento:'var(--amarelo)', concluida:'var(--verde-medio)', cancelada:'var(--vermelho)' }[s] || '#888';
 }
 function iconStatus(s) {
-  return { aberta:'📋', andamento:'🔧', concluida:'✅', cancelada:'❌' }[s] || '•';
+  return { aberta:'📋', validada:'✔️', andamento:'🔧', concluida:'✅', cancelada:'❌' }[s] || '•';
 }
 function fmtData(d) {
   if (!d) return '';

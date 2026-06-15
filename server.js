@@ -170,7 +170,27 @@ function parseHistorico(v) {
   return Array.isArray(v) ? v : [];
 }
 
+// fotos: a coluna TEXT guarda um data URI único (legado) ou um array JSON
+// de data URIs (várias fotos). Sempre devolve array.
+function parseFotos(v) {
+  if (!v) return [];
+  if (typeof v === 'string' && v.trim().startsWith('[')) {
+    try { const a = JSON.parse(v); return Array.isArray(a) ? a.filter(Boolean) : []; }
+    catch { return []; }
+  }
+  return [v];
+}
+
+// normaliza para gravação: 0 fotos → NULL, 1 → texto puro, 2+ → JSON
+function serializarFotos(v) {
+  const fotos = Array.isArray(v) ? v.filter(Boolean) : parseFotos(v);
+  if (!fotos.length) return null;
+  return fotos.length === 1 ? fotos[0] : JSON.stringify(fotos);
+}
+
 function mapRow(r, incluirFotos) {
+  const fotosAbertura = parseFotos(r.foto_abertura);
+  const fotosConclusao = parseFotos(r.foto_conclusao);
   return {
     id: r.id, numero: r.numero, tipo: r.tipo, descricao: r.descricao,
     endereco: r.endereco, bairro: r.bairro, referencia: r.referencia,
@@ -179,10 +199,11 @@ function mapRow(r, incluirFotos) {
     ocorrencias: r.ocorrencias || 1,
     primeiraOcorrencia: r.primeira_ocorrencia,
     tag: r.tag || '',
-    temFotoAbertura: !!r.foto_abertura,
-    temFotoConclusao: !!r.foto_conclusao,
-    fotoAbertura: incluirFotos ? (r.foto_abertura || null) : undefined,
-    fotoConclusao: incluirFotos ? (r.foto_conclusao || null) : undefined,
+    temFotoAbertura: fotosAbertura.length > 0,
+    temFotoConclusao: fotosConclusao.length > 0,
+    fotoAbertura: incluirFotos ? (fotosAbertura[0] || null) : undefined,
+    fotosAbertura: incluirFotos ? fotosAbertura : undefined,
+    fotoConclusao: incluirFotos ? (fotosConclusao[0] || null) : undefined,
     historico: parseHistorico(r.historico),
     criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
   };
@@ -220,8 +241,8 @@ app.get('/api/ordens', async (req, res) => {
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
              ocorrencias, primeira_ocorrencia, tag,
-             (foto_abertura  IS NOT NULL AND foto_abertura::text  <> '') AS tem_abertura,
-             (foto_conclusao IS NOT NULL AND foto_conclusao::text <> '') AS tem_conclusao,
+             (foto_abertura  IS NOT NULL AND foto_abertura::text  NOT IN ('', '[]')) AS tem_abertura,
+             (foto_conclusao IS NOT NULL AND foto_conclusao::text NOT IN ('', '[]')) AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
       FROM ordens_servico ORDER BY criado_em DESC
     `);
@@ -259,7 +280,7 @@ function valoresInsert(o, numero, criadoEm) {
     Math.max(1, parseInt(o.ocorrencias, 10) || 1),
     validarData(o.primeiraOcorrencia) ? o.primeiraOcorrencia : null,
     (o.tag || '').toString().trim().slice(0, 40),
-    o.fotoAbertura || null, historico, data,
+    serializarFotos(o.fotoAbertura), historico, data,
   ];
 }
 
@@ -360,17 +381,20 @@ app.put('/api/ordens/:id', async (req, res) => {
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
     const cur = atual.rows[0];
     const manter = (novo, antigo) => (novo !== undefined ? novo : antigo);
+    const fotoAbertura  = o.fotoAbertura  !== undefined ? serializarFotos(o.fotoAbertura)  : cur.foto_abertura;
+    const fotoConclusao = o.fotoConclusao !== undefined ? serializarFotos(o.fotoConclusao) : cur.foto_conclusao;
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          status = $1, responsavel = $2, equipe = $3, historico = $4,
-         foto_abertura = $5, foto_conclusao = $6, bairro = $7,
-         atualizado_em = NOW(), concluido_em = $8
-       WHERE id = $9 RETURNING *`,
+         foto_abertura = $5, foto_conclusao = $6, bairro = $7, referencia = $8,
+         atualizado_em = NOW(), concluido_em = $9
+       WHERE id = $10 RETURNING *`,
       [manter(o.status, cur.status), manter(o.responsavel, cur.responsavel),
        manter(o.equipe, cur.equipe),
        o.historico !== undefined ? JSON.stringify(o.historico) : JSON.stringify(cur.historico),
-       manter(o.fotoAbertura, cur.foto_abertura), manter(o.fotoConclusao, cur.foto_conclusao),
-       manter(o.bairro, cur.bairro), manter(o.concluidoEm, cur.concluido_em), id]
+       fotoAbertura, fotoConclusao,
+       manter(o.bairro, cur.bairro), manter(o.referencia, cur.referencia),
+       manter(o.concluidoEm, cur.concluido_em), id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
