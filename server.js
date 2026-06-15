@@ -377,20 +377,24 @@ app.put('/api/ordens/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
-    const atual = await pool.query('SELECT foto_abertura, foto_conclusao, referencia FROM ordens_servico WHERE id = $1', [id]);
+    const atual = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
-    const fotoAbertura  = o.fotoAbertura  !== undefined ? serializarFotos(o.fotoAbertura)  : atual.rows[0].foto_abertura;
-    const fotoConclusao = o.fotoConclusao !== undefined ? serializarFotos(o.fotoConclusao) : atual.rows[0].foto_conclusao;
-    // referencia só muda se vier no body (ex.: GPS capturado na validação)
-    const referencia = o.referencia !== undefined ? o.referencia : atual.rows[0].referencia;
+    const cur = atual.rows[0];
+    const manter = (novo, antigo) => (novo !== undefined ? novo : antigo);
+    const fotoAbertura  = o.fotoAbertura  !== undefined ? serializarFotos(o.fotoAbertura)  : cur.foto_abertura;
+    const fotoConclusao = o.fotoConclusao !== undefined ? serializarFotos(o.fotoConclusao) : cur.foto_conclusao;
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          status = $1, responsavel = $2, equipe = $3, historico = $4,
-         foto_abertura = $5, foto_conclusao = $6, referencia = $7,
-         atualizado_em = NOW(), concluido_em = $8
-       WHERE id = $9 RETURNING *`,
-      [o.status, o.responsavel || '', o.equipe || '', JSON.stringify(o.historico || []),
-       fotoAbertura, fotoConclusao, referencia, o.concluidoEm || null, id]
+         foto_abertura = $5, foto_conclusao = $6, bairro = $7, referencia = $8,
+         atualizado_em = NOW(), concluido_em = $9
+       WHERE id = $10 RETURNING *`,
+      [manter(o.status, cur.status), manter(o.responsavel, cur.responsavel),
+       manter(o.equipe, cur.equipe),
+       o.historico !== undefined ? JSON.stringify(o.historico) : JSON.stringify(cur.historico),
+       fotoAbertura, fotoConclusao,
+       manter(o.bairro, cur.bairro), manter(o.referencia, cur.referencia),
+       manter(o.concluidoEm, cur.concluido_em), id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }

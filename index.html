@@ -367,6 +367,12 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   font-size: 11px; font-weight: 700;
   padding: 3px 9px; border-radius: 20px;
 }
+.btn-sugestao {
+  display: inline-block; margin-top: 6px; cursor: pointer;
+  background: var(--azul-claro); color: var(--azul);
+  border: 1px solid #b9d4f2; border-radius: 8px;
+  font-size: 12px; font-weight: 700; padding: 5px 10px;
+}
 
 /* RECORRÊNCIA */
 .recorrente-pill {
@@ -618,7 +624,9 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div class="form-card-title">📤 Importar CSV <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(ex.: dados de buracos)</span></div>
     <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">
       Selecione um arquivo CSV. As colunas são detectadas automaticamente
-      (endereço/rua, bairro, descrição, referência, solicitante, prioridade, data, latitude/longitude...).
+      (endereço/rua, bairro, descrição, referência, solicitante, prioridade, data,
+      latitude/longitude ou coluna única de coordenadas...).
+      Sem a coluna de bairro, ele é preenchido pela coordenada (mapa de bairros de João Pessoa).
       Cada linha vira uma O.S. aberta.
     </p>
     <div class="foto-upload-area" onclick="document.getElementById('inputCSV').click()">
@@ -679,9 +687,6 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div style="padding:12px;background:var(--azul-claro);border-radius:var(--radius-sm);font-size:12px;color:var(--azul);margin-bottom:16px">
       ℹ️ Configure a variável <strong>DATABASE_URL</strong> no arquivo <strong>.env</strong> no servidor com a connection string do Neon Database.
     </div>
-    <div class="divider-label">Dados de Demonstração</div>
-    <button class="btn btn-success" onclick="carregarDemo()" style="margin-bottom:8px">🧪 Carregar Dados de Exemplo</button>
-    <button class="btn btn-danger" onclick="limparDados()">🗑️ Limpar Todos os Dados Locais</button>
     <button class="btn btn-secondary" onclick="toggleConfig()" style="margin-top:12px">Fechar</button>
   </div>
 </div>
@@ -689,6 +694,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 <!-- FAB -->
 <button class="fab" id="fabNova" onclick="showSection('nova')" title="Nova O.S.">+</button>
 
+<script src="bairros-jp.js"></script>
 <script>
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const S = {
@@ -920,7 +926,7 @@ function renderLista() {
       <div class="os-fotos-row">
         <div class="foto-pill ${os.temFotoAbertura?'tem':'nao'}">📷 Abertura ${os.temFotoAbertura?'✓':'–'}</div>
         <div class="foto-pill ${os.temFotoConclusao?'tem':'nao'}">📸 Conclusão ${os.temFotoConclusao?'✓':'–'}</div>
-        ${os.endereco?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
+        ${urlMapa(os)?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
       </div>
     </div>`).join('');
 }
@@ -1077,7 +1083,14 @@ async function abrirDetalhes(id) {
       <div class="form-card-title">📋 Informações</div>
       <table class="info-table">
         <tr><td>Tipo</td><td>${os.tipo||'–'}</td></tr>
-        <tr><td>Endereço</td><td>${os.endereco||'–'}${os.bairro?', '+os.bairro:''}</td></tr>
+        <tr><td>Endereço</td><td>${os.endereco||'–'}</td></tr>
+        <tr><td>Bairro</td><td>
+          <select class="form-input" style="padding:6px 10px;font-size:13px;width:auto;min-width:180px" onchange="salvarBairro(this.value)">
+            <option value="">— sem bairro —</option>
+            ${opcoesBairros(os.bairro)}
+          </select>
+          ${(!os.bairro && bairroSugeridoOS(os)) ? `<button type="button" class="btn-sugestao" onclick="salvarBairro('${bairroSugeridoOS(os).replace(/'/g,"\\'")}')">📍 Usar da coordenada: ${bairroSugeridoOS(os)}</button>` : ''}
+        </td></tr>
         ${os.referencia?`<tr><td>Referência</td><td>${os.referencia}</td></tr>`:''}
         <tr><td>Solicitante</td><td>${os.solicitante||'–'}</td></tr>
         ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
@@ -1093,7 +1106,7 @@ async function abrirDetalhes(id) {
         <div style="font-size:11px;font-weight:700;color:var(--cinza-texto);margin-bottom:5px;text-transform:uppercase">Descrição</div>
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}
-      ${os.endereco?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
       <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
     </div>
 
@@ -1660,10 +1673,10 @@ const MAPA_COLUNAS = {
   prazo:       ['prazo', 'data_prazo', 'previsao', 'data_previsao'],
   tipo:        ['subtipo', 'subtype', 'tipo', 'tipo_servico', 'tipo_de_servico', 'servico', 'categoria', 'type'],
   quantidade:  ['record_count', 'qtd_registros', 'ocorrencias', 'quantidade', 'qtd', 'registros', 'contagem'],
-  criadoEm:    ['data', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
+  criadoEm:    ['data', 'data_alerta', 'data_abertura', 'data_registro', 'data_solicitacao', 'criado_em', 'date'],
   latitude:    ['latitude', 'lat'],
   longitude:   ['longitude', 'lng', 'long', 'lon'],
-  coordenadas: ['coordenadas', 'coordenada', 'coordinates', 'coords', 'ponto', 'lat_lng', 'lat_long', 'latlng'],
+  coordenadas: ['coordenadas', 'coordenada', 'coordinates', 'coords', 'ponto', 'lat_lng', 'lat_long', 'latlng', 'localizacao_gps'],
 };
 
 // "−7.143197,-34.845491" → { lat, lng } (valida faixas geográficas)
@@ -1724,6 +1737,46 @@ function normalizarDataCSV(v) {
   return null;
 }
 
+// descobre o bairro de João Pessoa a partir da coordenada (point-in-polygon, offline)
+function bairroPorCoordenada(lat, lng) {
+  const mapa = window.BAIRROS_JP;
+  if (!mapa || lat == null || lng == null) return '';
+  const x = +lng, y = +lat;
+  if (!isFinite(x) || !isFinite(y)) return '';
+  const dentro = (anel) => {
+    let inside = false;
+    for (let i = 0, j = anel.length - 1; i < anel.length; j = i++) {
+      const xi = anel[i][0], yi = anel[i][1], xj = anel[j][0], yj = anel[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  for (const b of mapa) {
+    for (const anel of b.a) if (dentro(anel)) return b.n;
+  }
+  return ''; // fora de João Pessoa (ex.: Cabedelo, Bayeux, Santa Rita)
+}
+
+// extrai "lat, lng" da referência da O.S. e devolve o bairro sugerido pela coordenada
+function bairroSugeridoOS(os) {
+  const m = (os.referencia || '').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
+  return m ? bairroPorCoordenada(m[1], m[2]) : '';
+}
+
+// monta as <option> da lista de bairros, marcando o atual como selecionado
+function opcoesBairros(atual) {
+  const nomes = (window.BAIRROS_JP || []).map(b => b.n).sort((a, b) => a.localeCompare(b, 'pt'));
+  if (atual && !nomes.includes(atual)) nomes.push(atual); // preserva valor fora da lista
+  nomes.sort((a, b) => a.localeCompare(b, 'pt'));
+  return nomes.map(n => `<option value="${n.replace(/"/g, '&quot;')}"${n === atual ? ' selected' : ''}>${n}</option>`).join('');
+}
+
+async function salvarBairro(valor) {
+  const os = S.osAberta;
+  if (!os) return;
+  await atualizarOS(os.id, { bairro: valor });
+}
+
 let csvTextoAtual = null, csvNomeAtual = '';
 
 function selecionarCSV(input) {
@@ -1781,10 +1834,14 @@ function processarCSV(texto, nomeArquivo) {
     if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : coord ? ` — ponto ${coord.lat}, ${coord.lng}` : '');
     const data = normalizarDataCSV(pega(linha, 'criadoEm'));
 
+    // sem bairro na planilha? deriva da coordenada (mapa de bairros de João Pessoa)
+    let bairro = pega(linha, 'bairro');
+    if (!bairro && coord) bairro = bairroPorCoordenada(coord.lat, coord.lng);
+
     itens.push({
       tipo: traduzTipo(pega(linha, 'tipo')) || 'Pavimentação / Asfalto',
       descricao, endereco,
-      bairro: pega(linha, 'bairro'),
+      bairro,
       referencia,
       solicitante: pega(linha, 'solicitante'),
       responsavel: pega(linha, 'responsavel'),
@@ -1929,30 +1986,6 @@ async function testarConexaoSilencioso() {
       el.innerHTML = '<span class="db-dot"></span> Banco de dados conectado ✓';
     }
   } catch {}
-}
-
-// ── DEMO DATA ─────────────────────────────────────────────────────────────────
-function carregarDemo() {
-  S.ordens = [
-    { id:'d1', numero:'OS-2025-0001', tipo:'Pavimentação / Asfalto', descricao:'Tapa-buracos na Rua das Flores, trecho entre os números 120 e 180.', endereco:'Rua das Flores, 150', bairro:'Centro', referencia:'Em frente ao mercado São João', solicitante:'Maria Silva', responsavel:'Eng. Carlos Andrade', equipe:'Equipe Alpha', prioridade:'alta', prazo:'2025-07-20', status:'aberta', temFotoAbertura:false, temFotoConclusao:false, criadoEm:'2025-06-01T08:30:00Z', atualizadoEm:'2025-06-01T08:30:00Z', historico:[{status:'aberta',data:'2025-06-01T08:30:00Z',obs:'Ordem de serviço aberta'}] },
-    { id:'d2', numero:'OS-2025-0002', tipo:'Iluminação Pública', descricao:'Três postes sem iluminação na Av. Principal, causando insegurança.', endereco:'Av. Principal, 800', bairro:'Jardim Esperança', referencia:'Próximo ao Colégio Municipal', solicitante:'João Santos', responsavel:'Eng. Ana Paula', equipe:'Equipe Beta', prioridade:'media', prazo:'2025-07-15', status:'andamento', temFotoAbertura:false, temFotoConclusao:false, criadoEm:'2025-05-28T14:00:00Z', atualizadoEm:'2025-06-02T09:00:00Z', historico:[{status:'aberta',data:'2025-05-28T14:00:00Z',obs:'Ordem de serviço aberta'},{status:'andamento',data:'2025-06-02T09:00:00Z',obs:'Atendimento iniciado'}] },
-    { id:'d3', numero:'OS-2025-0003', tipo:'Drenagem / Esgoto', descricao:'Bueiro entupido causando alagamento após chuvas.', endereco:'Rua Sete de Setembro, 45', bairro:'Boa Vista', referencia:'Esquina com a Rua das Palmeiras', solicitante:'Pedro Oliveira', responsavel:'Eng. Roberto Lima', equipe:'Equipe Gamma', prioridade:'alta', prazo:'2025-06-10', status:'concluida', temFotoAbertura:true, temFotoConclusao:true, criadoEm:'2025-05-20T10:00:00Z', atualizadoEm:'2025-05-25T16:00:00Z', concluidoEm:'2025-05-25T16:00:00Z', historico:[{status:'aberta',data:'2025-05-20T10:00:00Z',obs:'Ordem de serviço aberta'},{status:'andamento',data:'2025-05-22T08:00:00Z',obs:'Equipe deslocada ao local'},{status:'concluida',data:'2025-05-25T16:00:00Z',obs:'Serviço concluído'}] },
-  ];
-  salvarLocal();
-  atualizarStats();
-  renderLista();
-  toggleConfig();
-  toast('🧪 Dados de exemplo carregados!');
-}
-
-function limparDados() {
-  if (!confirm('Limpar todos os dados locais?')) return;
-  S.ordens = [];
-  localStorage.removeItem('os_dados');
-  atualizarStats();
-  renderLista();
-  toggleConfig();
-  toast('🗑️ Dados locais apagados.');
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
