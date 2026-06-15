@@ -356,18 +356,21 @@ app.put('/api/ordens/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
-    const atual = await pool.query('SELECT foto_abertura, foto_conclusao FROM ordens_servico WHERE id = $1', [id]);
+    const atual = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
-    const fotoAbertura  = o.fotoAbertura  !== undefined ? o.fotoAbertura  : atual.rows[0].foto_abertura;
-    const fotoConclusao = o.fotoConclusao !== undefined ? o.fotoConclusao : atual.rows[0].foto_conclusao;
+    const cur = atual.rows[0];
+    const manter = (novo, antigo) => (novo !== undefined ? novo : antigo);
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          status = $1, responsavel = $2, equipe = $3, historico = $4,
-         foto_abertura = $5, foto_conclusao = $6,
-         atualizado_em = NOW(), concluido_em = $7
-       WHERE id = $8 RETURNING *`,
-      [o.status, o.responsavel || '', o.equipe || '', JSON.stringify(o.historico || []),
-       fotoAbertura, fotoConclusao, o.concluidoEm || null, id]
+         foto_abertura = $5, foto_conclusao = $6, bairro = $7,
+         atualizado_em = NOW(), concluido_em = $8
+       WHERE id = $9 RETURNING *`,
+      [manter(o.status, cur.status), manter(o.responsavel, cur.responsavel),
+       manter(o.equipe, cur.equipe),
+       o.historico !== undefined ? JSON.stringify(o.historico) : JSON.stringify(cur.historico),
+       manter(o.fotoAbertura, cur.foto_abertura), manter(o.fotoConclusao, cur.foto_conclusao),
+       manter(o.bairro, cur.bairro), manter(o.concluidoEm, cur.concluido_em), id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }

@@ -353,6 +353,12 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   font-size: 11px; font-weight: 700;
   padding: 3px 9px; border-radius: 20px;
 }
+.btn-sugestao {
+  display: inline-block; margin-top: 6px; cursor: pointer;
+  background: var(--azul-claro); color: var(--azul);
+  border: 1px solid #b9d4f2; border-radius: 8px;
+  font-size: 12px; font-weight: 700; padding: 5px 10px;
+}
 
 /* RECORRÊNCIA */
 .recorrente-pill {
@@ -1002,7 +1008,14 @@ async function abrirDetalhes(id) {
       <div class="form-card-title">📋 Informações</div>
       <table class="info-table">
         <tr><td>Tipo</td><td>${os.tipo||'–'}</td></tr>
-        <tr><td>Endereço</td><td>${os.endereco||'–'}${os.bairro?', '+os.bairro:''}</td></tr>
+        <tr><td>Endereço</td><td>${os.endereco||'–'}</td></tr>
+        <tr><td>Bairro</td><td>
+          <select class="form-input" style="padding:6px 10px;font-size:13px;width:auto;min-width:180px" onchange="salvarBairro(this.value)">
+            <option value="">— sem bairro —</option>
+            ${opcoesBairros(os.bairro)}
+          </select>
+          ${(!os.bairro && bairroSugeridoOS(os)) ? `<button type="button" class="btn-sugestao" onclick="salvarBairro('${bairroSugeridoOS(os).replace(/'/g,"\\'")}')">📍 Usar da coordenada: ${bairroSugeridoOS(os)}</button>` : ''}
+        </td></tr>
         ${os.referencia?`<tr><td>Referência</td><td>${os.referencia}</td></tr>`:''}
         <tr><td>Solicitante</td><td>${os.solicitante||'–'}</td></tr>
         ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
@@ -1371,6 +1384,26 @@ function bairroPorCoordenada(lat, lng) {
     for (const anel of b.a) if (dentro(anel)) return b.n;
   }
   return ''; // fora de João Pessoa (ex.: Cabedelo, Bayeux, Santa Rita)
+}
+
+// extrai "lat, lng" da referência da O.S. e devolve o bairro sugerido pela coordenada
+function bairroSugeridoOS(os) {
+  const m = (os.referencia || '').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
+  return m ? bairroPorCoordenada(m[1], m[2]) : '';
+}
+
+// monta as <option> da lista de bairros, marcando o atual como selecionado
+function opcoesBairros(atual) {
+  const nomes = (window.BAIRROS_JP || []).map(b => b.n).sort((a, b) => a.localeCompare(b, 'pt'));
+  if (atual && !nomes.includes(atual)) nomes.push(atual); // preserva valor fora da lista
+  nomes.sort((a, b) => a.localeCompare(b, 'pt'));
+  return nomes.map(n => `<option value="${n.replace(/"/g, '&quot;')}"${n === atual ? ' selected' : ''}>${n}</option>`).join('');
+}
+
+async function salvarBairro(valor) {
+  const os = S.osAberta;
+  if (!os) return;
+  await atualizarOS(os.id, { bairro: valor });
 }
 
 let csvTextoAtual = null, csvNomeAtual = '';
