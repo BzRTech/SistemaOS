@@ -591,7 +591,9 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div class="form-card-title">📤 Importar CSV <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(ex.: dados de buracos)</span></div>
     <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">
       Selecione um arquivo CSV. As colunas são detectadas automaticamente
-      (endereço/rua, bairro, descrição, referência, solicitante, prioridade, data, latitude/longitude...).
+      (endereço/rua, bairro, descrição, referência, solicitante, prioridade, data,
+      latitude/longitude ou coluna única de coordenadas...).
+      Sem a coluna de bairro, ele é preenchido pela coordenada (mapa de bairros de João Pessoa).
       Cada linha vira uma O.S. aberta.
     </p>
     <div class="foto-upload-area" onclick="document.getElementById('inputCSV').click()">
@@ -659,6 +661,7 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 <!-- FAB -->
 <button class="fab" id="fabNova" onclick="showSection('nova')" title="Nova O.S.">+</button>
 
+<script src="bairros-jp.js"></script>
 <script>
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const S = {
@@ -1350,6 +1353,26 @@ function normalizarDataCSV(v) {
   return null;
 }
 
+// descobre o bairro de João Pessoa a partir da coordenada (point-in-polygon, offline)
+function bairroPorCoordenada(lat, lng) {
+  const mapa = window.BAIRROS_JP;
+  if (!mapa || lat == null || lng == null) return '';
+  const x = +lng, y = +lat;
+  if (!isFinite(x) || !isFinite(y)) return '';
+  const dentro = (anel) => {
+    let inside = false;
+    for (let i = 0, j = anel.length - 1; i < anel.length; j = i++) {
+      const xi = anel[i][0], yi = anel[i][1], xj = anel[j][0], yj = anel[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  for (const b of mapa) {
+    for (const anel of b.a) if (dentro(anel)) return b.n;
+  }
+  return ''; // fora de João Pessoa (ex.: Cabedelo, Bayeux, Santa Rita)
+}
+
 let csvTextoAtual = null, csvNomeAtual = '';
 
 function selecionarCSV(input) {
@@ -1414,10 +1437,14 @@ function processarCSV(texto, nomeArquivo) {
     if (!descricao) descricao = 'Buraco na via' + (endereco ? ` — ${endereco}` : '');
     const data = normalizarDataCSV(pega(linha, 'criadoEm'));
 
+    // sem bairro na planilha? deriva da coordenada (mapa de bairros de João Pessoa)
+    let bairro = pega(linha, 'bairro');
+    if (!bairro && lat && lng) bairro = bairroPorCoordenada(lat, lng);
+
     itens.push({
       tipo: traduzTipo(pega(linha, 'tipo')) || 'Pavimentação / Asfalto',
       descricao, endereco,
-      bairro: pega(linha, 'bairro'),
+      bairro,
       referencia,
       coord: (lat && lng) ? `${lat},${lng}` : '',
       solicitante: pega(linha, 'solicitante'),
