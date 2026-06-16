@@ -1395,7 +1395,7 @@ function imprimirOS() {
     <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
 
   // observações registradas manualmente (exclui as mensagens automáticas de status)
-  const ehObsAutomatica = t => /^(Ordem de servi|Importada via CSV|O\.S\. validada|Atendimento iniciado|Serviço concluído|O\.S\. cancelada)/i.test(t || '');
+  const ehObsAutomatica = t => /^(Alyne|O\.S\. validada|Atendimento iniciado|Serviço concluído|O\.S\. cancelada)/i.test(t || '');
   const observacoes = (os.historico || []).filter(h => h.obs && !ehObsAutomatica(h.obs));
 
   const html = `<!DOCTYPE html>
