@@ -728,6 +728,7 @@ const S = {
   fotosAbertura: [],    // base64[] (novas O.S. aceitam várias fotos)
   fotoConclusaoModal: null,
   osAberta: null,       // OS carregada no modal
+  editandoInfo: false,  // modo de edição da seção Informações
 };
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -1092,6 +1093,7 @@ async function abrirDetalhes(id) {
   if (!os) { fecharModal(); return; }
   S.osAberta = os;
   S.fotoConclusaoModal = null;
+  S.editandoInfo = false;
 
   document.getElementById('modalNumero').textContent = os.numero;
   document.getElementById('modalTipo').textContent = os.tipo || '';
@@ -1102,7 +1104,7 @@ async function abrirDetalhes(id) {
   document.getElementById('modalCorpo').innerHTML = `
     <!-- INFO -->
     <div class="form-card">
-      ${renderInfoCard(os)}
+      <div id="cardInfo">${renderInfoCard(os)}</div>
       ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
       <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
     </div>
@@ -1786,9 +1788,15 @@ function opcoesTipo(atual) {
 // card de informações: editável quando a O.S. está aberta; somente leitura caso contrário
 function renderInfoCard(os) {
   const attr = v => String(v ?? '').replace(/"/g, '&quot;');
-  if (os.status !== 'aberta') {
-    return `
-      <div class="form-card-title">📋 Informações</div>
+  const editando = S.editandoInfo && os.status === 'aberta';
+  const btnEditar = (os.status === 'aberta' && !editando)
+    ? `<button type="button" class="btn-sugestao" onclick="editarInfo()">✏️ Editar</button>` : '';
+  const titulo = `<div class="form-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>📋 Informações</span>${btnEditar}
+    </div>`;
+
+  if (!editando) {
+    return `${titulo}
       <table class="info-table">
         <tr><td>Tipo</td><td>${os.tipo||'–'}</td></tr>
         <tr><td>Endereço</td><td>${os.endereco||'–'}</td></tr>
@@ -1815,10 +1823,9 @@ function renderInfoCard(os) {
         <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
       </div>`:''}`;
   }
-  // status aberta → formulário editável
+  // modo edição (status aberta)
   const sug = bairroSugeridoOS(os);
-  return `
-    <div class="form-card-title">📋 Informações <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(editável — O.S. aberta)</span></div>
+  return `${titulo}
     <div class="form-group"><label class="form-label">Tipo de Serviço</label>
       <select class="form-input" id="infTipo">${opcoesTipo(os.tipo)}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
@@ -1848,7 +1855,10 @@ function renderInfoCard(os) {
       <div class="form-group" style="margin:0"><label class="form-label">Prazo</label>
         <input class="form-input" type="date" id="infPrazo" value="${os.prazo?String(os.prazo).slice(0,10):''}"></div>
     </div>
-    <button class="btn btn-primary" style="margin-top:4px" onclick="salvarInfo()">💾 Salvar informações</button>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-primary" style="flex:1" onclick="salvarInfo()">💾 Salvar</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="cancelarInfo()">Cancelar</button>
+    </div>
     <table class="info-table" style="margin-top:14px">
       ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
       ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
@@ -1856,9 +1866,22 @@ function renderInfoCard(os) {
     </table>`;
 }
 
+function editarInfo() {
+  S.editandoInfo = true;
+  const el = document.getElementById('cardInfo');
+  if (el) el.innerHTML = renderInfoCard(S.osAberta);
+}
+
+function cancelarInfo() {
+  S.editandoInfo = false;
+  const el = document.getElementById('cardInfo');
+  if (el) el.innerHTML = renderInfoCard(S.osAberta);
+}
+
 async function salvarInfo() {
   const os = S.osAberta;
   if (!os) return;
+  S.editandoInfo = false;
   const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : undefined; };
   await atualizarOS(os.id, {
     tipo: v('infTipo'),
