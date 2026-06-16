@@ -387,13 +387,20 @@ app.put('/api/ordens/:id', async (req, res) => {
       `UPDATE ordens_servico SET
          status = $1, responsavel = $2, equipe = $3, historico = $4,
          foto_abertura = $5, foto_conclusao = $6, bairro = $7, referencia = $8,
-         atualizado_em = NOW(), concluido_em = $9
-       WHERE id = $10 RETURNING *`,
+         tipo = $9, descricao = $10, endereco = $11, solicitante = $12,
+         prioridade = $13, prazo = $14,
+         atualizado_em = NOW(), concluido_em = $15
+       WHERE id = $16 RETURNING *`,
       [manter(o.status, cur.status), manter(o.responsavel, cur.responsavel),
        manter(o.equipe, cur.equipe),
        o.historico !== undefined ? JSON.stringify(o.historico) : JSON.stringify(cur.historico),
        fotoAbertura, fotoConclusao,
        manter(o.bairro, cur.bairro), manter(o.referencia, cur.referencia),
+       manter(o.tipo, cur.tipo), manter(o.descricao, cur.descricao),
+       manter(o.endereco, cur.endereco),
+       o.solicitante !== undefined ? (o.solicitante || cur.solicitante) : cur.solicitante,
+       manter(o.prioridade, cur.prioridade),
+       o.prazo !== undefined ? (o.prazo || null) : cur.prazo,
        manter(o.concluidoEm, cur.concluido_em), id]
     );
     res.json(mapRow(rows[0], true));

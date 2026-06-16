@@ -563,11 +563,11 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     </div>
     <div class="form-group">
       <label class="form-label">Responsável Técnico</label>
-      <input class="form-input" type="text" id="novaResponsavel" placeholder="Engenheiro / Fiscal">
+      <input class="form-input" type="text" id="novaResponsavel" list="respSugestoes" placeholder="Engenheiro / Fiscal">
     </div>
     <div class="form-group">
       <label class="form-label">Equipe / Empreiteira</label>
-      <input class="form-input" type="text" id="novaEquipe" placeholder="Nome da equipe ou empresa">
+      <input class="form-input" type="text" id="novaEquipe" list="eqSugestoes" placeholder="Nome da equipe ou empresa">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="form-group" style="margin:0">
@@ -642,6 +642,22 @@ textarea.form-input { min-height: 80px; resize: vertical; }
         <option value="Waze"><option value="Ouvidoria"><option value="156"><option value="Vistoria de campo"><option value="Defesa Civil">
       </datalist>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Solicitante (padrão)</label>
+        <input class="form-input" type="text" id="solImportCSV" value="Alyne" maxlength="60" onchange="reprocessarCSV()" placeholder="Nome do solicitante">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Responsável (padrão)</label>
+        <input class="form-input" type="text" id="respImportCSV" value="Sandoval" maxlength="60" list="respSugestoes" onchange="reprocessarCSV()" placeholder="Responsável técnico">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Equipe (padrão)</label>
+        <input class="form-input" type="text" id="eqImportCSV" value="Fenix" maxlength="60" list="eqSugestoes" onchange="reprocessarCSV()" placeholder="Equipe / empreiteira">
+      </div>
+    </div>
+    <datalist id="respSugestoes"><option value="Sandoval"></datalist>
+    <datalist id="eqSugestoes"><option value="Fenix"></datalist>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;cursor:pointer">
       <input type="checkbox" id="chkAgruparCSV" checked onchange="reprocessarCSV()" style="width:17px;height:17px;accent-color:var(--primaria)">
       Agrupar linhas repetidas do mesmo endereço em uma única O.S. (recomendado)
@@ -696,6 +712,12 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 
 <script src="bairros-jp.js"></script>
 <script>
+// escapa texto para uso seguro em HTML
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const S = {
   ordens: [],
@@ -1080,32 +1102,7 @@ async function abrirDetalhes(id) {
   document.getElementById('modalCorpo').innerHTML = `
     <!-- INFO -->
     <div class="form-card">
-      <div class="form-card-title">📋 Informações</div>
-      <table class="info-table">
-        <tr><td>Tipo</td><td>${os.tipo||'–'}</td></tr>
-        <tr><td>Endereço</td><td>${os.endereco||'–'}</td></tr>
-        <tr><td>Bairro</td><td>
-          <select class="form-input" style="padding:6px 10px;font-size:13px;width:auto;min-width:180px" onchange="salvarBairro(this.value)">
-            <option value="">— sem bairro —</option>
-            ${opcoesBairros(os.bairro)}
-          </select>
-          ${(!os.bairro && bairroSugeridoOS(os)) ? `<button type="button" class="btn-sugestao" onclick="salvarBairro('${bairroSugeridoOS(os).replace(/'/g,"\\'")}')">📍 Usar da coordenada: ${bairroSugeridoOS(os)}</button>` : ''}
-        </td></tr>
-        ${os.referencia?`<tr><td>Referência</td><td>${os.referencia}</td></tr>`:''}
-        <tr><td>Solicitante</td><td>${os.solicitante||'–'}</td></tr>
-        ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
-        ${os.equipe?`<tr><td>Equipe</td><td>${os.equipe}</td></tr>`:''}
-        <tr><td>Prioridade</td><td class="prio-${os.prioridade}">${labelPrio(os.prioridade)}</td></tr>
-        ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
-        ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
-        ${os.prazo?`<tr><td>Prazo</td><td>${fmtData(os.prazo)}</td></tr>`:''}
-        <tr><td>Aberta em</td><td>${fmtDataHora(os.criadoEm)}</td></tr>
-        ${os.concluidoEm?`<tr><td>Concluída em</td><td>${fmtDataHora(os.concluidoEm)}</td></tr>`:''}
-      </table>
-      ${os.descricao?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--cinza-bg)">
-        <div style="font-size:11px;font-weight:700;color:var(--cinza-texto);margin-bottom:5px;text-transform:uppercase">Descrição</div>
-        <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
-      </div>`:''}
+      ${renderInfoCard(os)}
       ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
       <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
     </div>
@@ -1777,6 +1774,106 @@ async function salvarBairro(valor) {
   await atualizarOS(os.id, { bairro: valor });
 }
 
+// opções do seletor de tipo, marcando o atual como selecionado
+function opcoesTipo(atual) {
+  const tipos = ['Pavimentação / Asfalto','Drenagem / Esgoto','Iluminação Pública','Limpeza Urbana',
+    'Manutenção de Praças','Bueiros / Bocas de Lobo','Calçadas / Passeios','Pontes / Viadutos',
+    'Sinalização Viária','Outros'];
+  if (atual && !tipos.includes(atual)) tipos.unshift(atual);
+  return tipos.map(t => `<option${t === atual ? ' selected' : ''}>${esc(t)}</option>`).join('');
+}
+
+// card de informações: editável quando a O.S. está aberta; somente leitura caso contrário
+function renderInfoCard(os) {
+  const attr = v => String(v ?? '').replace(/"/g, '&quot;');
+  if (os.status !== 'aberta') {
+    return `
+      <div class="form-card-title">📋 Informações</div>
+      <table class="info-table">
+        <tr><td>Tipo</td><td>${os.tipo||'–'}</td></tr>
+        <tr><td>Endereço</td><td>${os.endereco||'–'}</td></tr>
+        <tr><td>Bairro</td><td>
+          <select class="form-input" style="padding:6px 10px;font-size:13px;width:auto;min-width:180px" onchange="salvarBairro(this.value)">
+            <option value="">— sem bairro —</option>
+            ${opcoesBairros(os.bairro)}
+          </select>
+          ${(!os.bairro && bairroSugeridoOS(os)) ? `<button type="button" class="btn-sugestao" onclick="salvarBairro('${bairroSugeridoOS(os).replace(/'/g,"\\'")}')">📍 Usar da coordenada: ${bairroSugeridoOS(os)}</button>` : ''}
+        </td></tr>
+        ${os.referencia?`<tr><td>Referência</td><td>${os.referencia}</td></tr>`:''}
+        <tr><td>Solicitante</td><td>${os.solicitante||'–'}</td></tr>
+        ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
+        ${os.equipe?`<tr><td>Equipe</td><td>${os.equipe}</td></tr>`:''}
+        <tr><td>Prioridade</td><td class="prio-${os.prioridade}">${labelPrio(os.prioridade)}</td></tr>
+        ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
+        ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
+        ${os.prazo?`<tr><td>Prazo</td><td>${fmtData(os.prazo)}</td></tr>`:''}
+        <tr><td>Aberta em</td><td>${fmtDataHora(os.criadoEm)}</td></tr>
+        ${os.concluidoEm?`<tr><td>Concluída em</td><td>${fmtDataHora(os.concluidoEm)}</td></tr>`:''}
+      </table>
+      ${os.descricao?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--cinza-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--cinza-texto);margin-bottom:5px;text-transform:uppercase">Descrição</div>
+        <p style="font-size:13px;line-height:1.6">${os.descricao}</p>
+      </div>`:''}`;
+  }
+  // status aberta → formulário editável
+  const sug = bairroSugeridoOS(os);
+  return `
+    <div class="form-card-title">📋 Informações <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(editável — O.S. aberta)</span></div>
+    <div class="form-group"><label class="form-label">Tipo de Serviço</label>
+      <select class="form-input" id="infTipo">${opcoesTipo(os.tipo)}</select></div>
+    <div class="form-group"><label class="form-label">Descrição</label>
+      <textarea class="form-input" id="infDescricao" rows="3">${esc(os.descricao||'')}</textarea></div>
+    <div class="form-group"><label class="form-label">Endereço</label>
+      <input class="form-input" type="text" id="infEndereco" value="${attr(os.endereco)}"></div>
+    <div class="form-group"><label class="form-label">Bairro</label>
+      <select class="form-input" id="infBairro"><option value="">— sem bairro —</option>${opcoesBairros(os.bairro)}</select>
+      ${(!os.bairro && sug) ? `<div style="font-size:11px;color:var(--cinza-texto);margin-top:4px">📍 Sugestão pela coordenada: <strong>${sug}</strong> (selecione acima e salve)</div>` : ''}</div>
+    <div class="form-group"><label class="form-label">Ponto de Referência</label>
+      <input class="form-input" type="text" id="infReferencia" value="${attr(os.referencia)}"></div>
+    <div class="form-group"><label class="form-label">Solicitante</label>
+      <input class="form-input" type="text" id="infSolicitante" value="${attr(os.solicitante)}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group" style="margin:0"><label class="form-label">Responsável</label>
+        <input class="form-input" type="text" id="infResponsavel" list="respSugestoes" value="${attr(os.responsavel)}"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Equipe</label>
+        <input class="form-input" type="text" id="infEquipe" list="eqSugestoes" value="${attr(os.equipe)}"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group" style="margin:0"><label class="form-label">Prioridade</label>
+        <select class="form-input" id="infPrioridade">
+          <option value="baixa"${os.prioridade==='baixa'?' selected':''}>🟢 Baixa</option>
+          <option value="media"${os.prioridade==='media'?' selected':''}>🟡 Média</option>
+          <option value="alta"${os.prioridade==='alta'?' selected':''}>🔴 Alta</option>
+        </select></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Prazo</label>
+        <input class="form-input" type="date" id="infPrazo" value="${os.prazo?String(os.prazo).slice(0,10):''}"></div>
+    </div>
+    <button class="btn btn-primary" style="margin-top:4px" onclick="salvarInfo()">💾 Salvar informações</button>
+    <table class="info-table" style="margin-top:14px">
+      ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
+      ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
+      <tr><td>Aberta em</td><td>${fmtDataHora(os.criadoEm)}</td></tr>
+    </table>`;
+}
+
+async function salvarInfo() {
+  const os = S.osAberta;
+  if (!os) return;
+  const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : undefined; };
+  await atualizarOS(os.id, {
+    tipo: v('infTipo'),
+    descricao: v('infDescricao'),
+    endereco: v('infEndereco'),
+    bairro: v('infBairro'),
+    referencia: v('infReferencia'),
+    solicitante: v('infSolicitante'),
+    responsavel: v('infResponsavel'),
+    equipe: v('infEquipe'),
+    prioridade: v('infPrioridade'),
+    prazo: v('infPrazo') || null,
+  });
+}
+
 let csvTextoAtual = null, csvNomeAtual = '';
 
 function selecionarCSV(input) {
@@ -1843,9 +1940,9 @@ function processarCSV(texto, nomeArquivo) {
       descricao, endereco,
       bairro,
       referencia,
-      solicitante: pega(linha, 'solicitante'),
-      responsavel: pega(linha, 'responsavel'),
-      equipe: pega(linha, 'equipe'),
+      solicitante: pega(linha, 'solicitante') || (document.getElementById('solImportCSV')?.value || '').trim(),
+      responsavel: pega(linha, 'responsavel') || (document.getElementById('respImportCSV')?.value || '').trim(),
+      equipe: pega(linha, 'equipe') || (document.getElementById('eqImportCSV')?.value || '').trim(),
       prioridade: normalizarPrioridade(pega(linha, 'prioridade')),
       prazo: normalizarDataCSV(pega(linha, 'prazo')),
       criadoEm: data,
