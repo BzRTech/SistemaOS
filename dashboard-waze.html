@@ -28,7 +28,7 @@
   --vermelho: #d32f2f;
   --vermelho-claro: #fdecea;
   --sombra: 0 2px 12px rgba(0,0,0,0.08);
-  /* cores Wayz */
+  /* cores Waze */
   --w1: #f5a623; /* 1–2 relatos */
   --w2: #e07b1a; /* 3–5 relatos */
   --w3: #d32f2f; /* 6–9 relatos */
@@ -215,7 +215,7 @@ tr:hover td { background: #fafbfc; }
 <!-- Token banner (exibido quando o token expira) -->
 <div id="tokenBanner" class="token-banner" style="display:none">
   <div class="token-inner">
-    <div>⚠️ <strong>Token Wayz expirado ou não configurado.</strong> Gere um novo em: <code>gcloud auth print-access-token</code> (Cloud Shell do Google Cloud).</div>
+    <div>⚠️ <strong>Token Waze expirado ou não configurado.</strong> Gere um novo em: <code>gcloud auth print-access-token</code> (Cloud Shell do Google Cloud).</div>
     <div class="token-form">
       <input type="password" id="tokenInput" placeholder="ya29.a0AT3oNZ...">
       <button onclick="atualizarToken()">Salvar token</button>
@@ -380,7 +380,7 @@ async function atualizarToken() {
   const msg   = document.getElementById('tokenMsg');
   if (!token) { msg.textContent = 'Cole o token antes de salvar.'; msg.className = 'erro'; return; }
   try {
-    const r = await fetch('/api/wayz/token', {
+    const r = await fetch('/api/waze/token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
@@ -724,14 +724,14 @@ async function carregar() {
   params.set('minRelatos', mr);
 
   try {
-    const r = await fetch('/api/wayz/buracos?' + params.toString());
+    const r = await fetch('/api/waze/buracos?' + params.toString());
     const json = await r.json();
 
     if (!r.ok) {
       if (json.tokenExpirado || json.semToken) {
         mostrarTokenBanner();
         document.getElementById('erro').innerHTML =
-          `<div class="erro-box">🔑 Token Wayz expirado. Cole um novo token no campo acima para continuar.</div>`;
+          `<div class="erro-box">🔑 Token Waze expirado. Cole um novo token no campo acima para continuar.</div>`;
         setCarregando(false);
         return;
       }

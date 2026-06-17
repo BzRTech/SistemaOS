@@ -416,23 +416,23 @@ app.delete('/api/ordens/:id', async (req, res) => {
   } catch (e) { console.error('DELETE /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// ─── Wayz / BigQuery ──────────────────────────────────────────────────────────
+// ─── Waze / BigQuery ──────────────────────────────────────────────────────────
 const BQ_PROJECT = 'testes-waze';
 const BQ_DATASET = '_5e4672ad25f1dd1e88fd4c6e4e08ded39e5355d4';
 const BQ_TABLE   = 'anonev_CQ4kaid0Yt38JYg3VVol8cWTw6sHwxBRzpwJLB4lMd0';
 
-// Service Account: carregada de WAYZ_SA_JSON (nunca sobe ao repositório)
+// Service Account: carregada de WAZE_SA_JSON (nunca sobe ao repositório)
 let saCredentials = null;
 try {
-  const raw = process.env.WAYZ_SA_JSON;
+  const raw = process.env.WAZE_SA_JSON;
   if (raw) {
     saCredentials = JSON.parse(raw);
-    console.log('Wayz: Service Account configurada —', saCredentials.client_email);
+    console.log('Waze: Service Account configurada —', saCredentials.client_email);
   }
-} catch (e) { console.warn('WAYZ_SA_JSON inválido:', e.message); }
+} catch (e) { console.warn('WAZE_SA_JSON inválido:', e.message); }
 
 // Fallback: token manual (legado)
-let wayzTokenManual = process.env.WAYZ_TOKEN || '';
+let wazeTokenManual = process.env.WAZE_TOKEN || '';
 let saTokenCache = { token: '', expiresAt: 0 };
 
 function base64url(buf) {
@@ -482,14 +482,14 @@ function getServiceAccountToken() {
   });
 }
 
-async function getWayzToken() {
+async function getWazeToken() {
   if (saCredentials) return getServiceAccountToken();
-  if (!wayzTokenManual) { const e = new Error('Token Wayz não configurado'); e.semToken = true; throw e; }
-  return wayzTokenManual;
+  if (!wazeTokenManual) { const e = new Error('Token Waze não configurado'); e.semToken = true; throw e; }
+  return wazeTokenManual;
 }
 
 async function bqQuery(sql, params) {
-  const token = await getWayzToken();
+  const token = await getWazeToken();
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query: sql, useLegacySql: false, timeoutMs: 30000, queryParameters: params || [] });
     const req = https.request({
@@ -515,18 +515,18 @@ async function bqQuery(sql, params) {
   });
 }
 
-// Fallback manual: só necessário se WAYZ_SA_JSON não estiver configurado
-app.post('/api/wayz/token', (req, res) => {
+// Fallback manual: só necessário se WAZE_SA_JSON não estiver configurado
+app.post('/api/waze/token', (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
-  wayzTokenManual = String(token).trim();
+  wazeTokenManual = String(token).trim();
   saTokenCache = { token: '', expiresAt: 0 }; // descarta cache da SA
-  console.log('Wayz token manual atualizado em', new Date().toISOString());
+  console.log('Waze token manual atualizado em', new Date().toISOString());
   res.json({ ok: true });
 });
 
-app.get('/api/wayz/buracos', async (req, res) => {
+app.get('/api/waze/buracos', async (req, res) => {
 
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
@@ -569,7 +569,7 @@ app.get('/api/wayz/buracos', async (req, res) => {
     if (data.error) {
       const c = data.error.code;
       if (c === 401 || c === 403)
-        return res.status(401).json({ erro: 'Token Wayz expirado', tokenExpirado: true });
+        return res.status(401).json({ erro: 'Token Waze expirado', tokenExpirado: true });
       return res.status(500).json({ erro: data.error.message });
     }
 
@@ -592,12 +592,12 @@ app.get('/api/wayz/buracos', async (req, res) => {
 
     res.json({ ok: true, total: dados.length, dados });
   } catch (e) {
-    console.error('GET /api/wayz/buracos:', e.message);
+    console.error('GET /api/waze/buracos:', e.message);
     if (e.semToken) return res.status(401).json({ erro: e.message, semToken: true });
     res.status(500).json({ erro: e.message });
   }
 });
-// ─── fim Wayz ──────────────────────────────────────────────────────────────────
+// ─── fim Waze ──────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 iniciarBanco().then(() => {
