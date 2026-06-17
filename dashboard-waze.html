@@ -728,6 +728,12 @@ async function carregar() {
     const json = await r.json();
 
     if (!r.ok) {
+      if (json.semPermissao) {
+        document.getElementById('erro').innerHTML =
+          `<div class="erro-box">🔒 ${json.erro || 'A Service Account não tem permissão no BigQuery.'}</div>`;
+        setCarregando(false);
+        return;
+      }
       if (json.tokenExpirado || json.semToken) {
         mostrarTokenBanner();
         document.getElementById('erro').innerHTML =

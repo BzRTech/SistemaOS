@@ -568,8 +568,17 @@ app.get('/api/waze/buracos', async (req, res) => {
 
     if (data.error) {
       const c = data.error.code;
-      if (c === 401 || c === 403)
+      console.error('BigQuery negou a consulta:', c, JSON.stringify(data.error));
+      if (c === 401 || c === 403) {
+        // Com Service Account, 401/403 é falta de permissão no BigQuery — não adianta colar token.
+        if (saCredentials)
+          return res.status(403).json({
+            erro: 'A Service Account não tem permissão no BigQuery. Conceda os papéis "BigQuery Data Viewer" e "BigQuery Job User" à conta ' +
+                  (saCredentials.client_email || '') + ' no projeto ' + BQ_PROJECT + '. Detalhe: ' + (data.error.message || ''),
+            semPermissao: true,
+          });
         return res.status(401).json({ erro: 'Token Waze expirado', tokenExpirado: true });
+      }
       return res.status(500).json({ erro: data.error.message });
     }
 
