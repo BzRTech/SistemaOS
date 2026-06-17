@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const https = require('https');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
@@ -413,6 +414,122 @@ app.delete('/api/ordens/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { console.error('DELETE /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
+
+// ─── Wayz / BigQuery ──────────────────────────────────────────────────────────
+let wayzToken = process.env.WAYZ_TOKEN || '';
+const BQ_PROJECT = 'testes-waze';
+const BQ_DATASET = '_5e4672ad25f1dd1e88fd4c6e4e08ded39e5355d4';
+const BQ_TABLE   = 'anonev_CQ4kaid0Yt38JYg3VVol8cWTw6sHwxBRzpwJLB4lMd0';
+
+function bqQuery(sql, params) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ query: sql, useLegacySql: false, timeoutMs: 30000, queryParameters: params || [] });
+    const req = https.request({
+      hostname: 'bigquery.googleapis.com',
+      path: `/bigquery/v2/projects/${BQ_PROJECT}/queries`,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${wayzToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let d = '';
+      res.on('data', chunk => d += chunk);
+      res.on('end', () => {
+        try { resolve({ httpStatus: res.statusCode, data: JSON.parse(d) }); }
+        catch { reject(new Error('Resposta inválida do BigQuery')); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// Atualiza o token OAuth em memória (expira a cada ~1h; gerar no Cloud Shell: gcloud auth print-access-token)
+app.post('/api/wayz/token', (req, res) => {
+  const { token } = req.body;
+  if (!token || !String(token).trim())
+    return res.status(400).json({ erro: 'Token obrigatório' });
+  wayzToken = String(token).trim();
+  console.log('Wayz token atualizado em', new Date().toISOString());
+  res.json({ ok: true });
+});
+
+app.get('/api/wayz/buracos', async (req, res) => {
+  if (!wayzToken)
+    return res.status(401).json({ erro: 'Token Wayz não configurado', semToken: true });
+
+  const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
+  const di  = validDate(req.query.dataInicio);
+  const df  = validDate(req.query.dataFim);
+  const mr  = Math.max(1, parseInt(req.query.minRelatos) || 1);
+  const rua = req.query.rua
+    ? String(req.query.rua).replace(/['"\\;%]/g, '').trim().slice(0, 100)
+    : null;
+
+  const conds  = ['t0_qt_fvgeseri4d >= @minRelatos'];
+  const params = [{ name: 'minRelatos', parameterType: { type: 'INT64' }, parameterValue: { value: String(mr) } }];
+
+  if (di) {
+    conds.push('clmn2_ >= @di');
+    params.push({ name: 'di', parameterType: { type: 'DATE' }, parameterValue: { value: di } });
+  }
+  if (df) {
+    conds.push('clmn2_ <= @df');
+    params.push({ name: 'df', parameterType: { type: 'DATE' }, parameterValue: { value: df } });
+  }
+  if (rua) {
+    conds.push("LOWER(COALESCE(clmn4_, '')) LIKE LOWER(@rua)");
+    params.push({ name: 'rua', parameterType: { type: 'STRING' }, parameterValue: { value: `%${rua}%` } });
+  }
+
+  const sql = `
+    SELECT clmn1_ AS coordenadas, clmn2_ AS data,
+           COALESCE(clmn4_, '') AS rua,
+           CAST(t0_qt_fvgeseri4d AS INT64) AS relatos,
+           CAST(t0_qt_jtzijkri4d AS INT64) AS confirmacoes,
+           CAST(clmn0_           AS INT64) AS score
+    FROM \`${BQ_PROJECT}.${BQ_DATASET}.${BQ_TABLE}\`
+    WHERE ${conds.join(' AND ')}
+    ORDER BY clmn2_ DESC, t0_qt_fvgeseri4d DESC
+    LIMIT 5000`;
+
+  try {
+    const { data } = await bqQuery(sql, params);
+
+    if (data.error) {
+      const c = data.error.code;
+      if (c === 401 || c === 403)
+        return res.status(401).json({ erro: 'Token Wayz expirado', tokenExpirado: true });
+      return res.status(500).json({ erro: data.error.message });
+    }
+
+    const cols = (data.schema?.fields || []).map(f => f.name);
+    const dados = (data.rows || []).map(row => {
+      const v = Object.fromEntries(cols.map((c, i) => [c, row.f[i].v]));
+      const parts = v.coordenadas ? String(v.coordenadas).split(',') : [];
+      const lat = parseFloat(parts[0]), lon = parseFloat(parts[1]);
+      return {
+        coordenadas:  v.coordenadas  || '',
+        lat:          isNaN(lat)  ? null : lat,
+        lon:          isNaN(lon)  ? null : lon,
+        data:         v.data         || '',
+        rua:          v.rua          || '',
+        relatos:      parseInt(v.relatos)       || 0,
+        confirmacoes: parseInt(v.confirmacoes)  || 0,
+        score:        parseInt(v.score)         || 0,
+      };
+    });
+
+    res.json({ ok: true, total: dados.length, dados });
+  } catch (e) {
+    console.error('GET /api/wayz/buracos:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
+});
+// ─── fim Wayz ──────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 iniciarBanco().then(() => {
