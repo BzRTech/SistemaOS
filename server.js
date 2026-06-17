@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const https = require('https');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
@@ -416,12 +417,79 @@ app.delete('/api/ordens/:id', async (req, res) => {
 });
 
 // ─── Wayz / BigQuery ──────────────────────────────────────────────────────────
-let wayzToken = process.env.WAYZ_TOKEN || '';
 const BQ_PROJECT = 'testes-waze';
 const BQ_DATASET = '_5e4672ad25f1dd1e88fd4c6e4e08ded39e5355d4';
 const BQ_TABLE   = 'anonev_CQ4kaid0Yt38JYg3VVol8cWTw6sHwxBRzpwJLB4lMd0';
 
-function bqQuery(sql, params) {
+// Service Account: carregada de WAYZ_SA_JSON (nunca sobe ao repositório)
+let saCredentials = null;
+try {
+  const raw = process.env.WAYZ_SA_JSON;
+  if (raw) {
+    saCredentials = JSON.parse(raw);
+    console.log('Wayz: Service Account configurada —', saCredentials.client_email);
+  }
+} catch (e) { console.warn('WAYZ_SA_JSON inválido:', e.message); }
+
+// Fallback: token manual (legado)
+let wayzTokenManual = process.env.WAYZ_TOKEN || '';
+let saTokenCache = { token: '', expiresAt: 0 };
+
+function base64url(buf) {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// Troca a chave privada da SA por um access_token OAuth2; renova 2 min antes de expirar
+function getServiceAccountToken() {
+  if (saTokenCache.token && Date.now() < saTokenCache.expiresAt - 120000)
+    return Promise.resolve(saTokenCache.token);
+
+  const sa  = saCredentials;
+  const now = Math.floor(Date.now() / 1000);
+  const hdr = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const pld = base64url(Buffer.from(JSON.stringify({
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/bigquery.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600, iat: now,
+  })));
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(`${hdr}.${pld}`);
+  const jwt  = `${hdr}.${pld}.${base64url(sign.sign(sa.private_key))}`;
+  const body = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`;
+
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(d);
+          if (!j.access_token) return reject(new Error(j.error_description || 'Falha ao obter token SA'));
+          saTokenCache = { token: j.access_token, expiresAt: Date.now() + (j.expires_in || 3600) * 1000 };
+          resolve(saTokenCache.token);
+        } catch { reject(new Error('Resposta inválida do OAuth2')); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function getWayzToken() {
+  if (saCredentials) return getServiceAccountToken();
+  if (!wayzTokenManual) { const e = new Error('Token Wayz não configurado'); e.semToken = true; throw e; }
+  return wayzTokenManual;
+}
+
+async function bqQuery(sql, params) {
+  const token = await getWayzToken();
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query: sql, useLegacySql: false, timeoutMs: 30000, queryParameters: params || [] });
     const req = https.request({
@@ -429,7 +497,7 @@ function bqQuery(sql, params) {
       path: `/bigquery/v2/projects/${BQ_PROJECT}/queries`,
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${wayzToken}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
       },
@@ -447,19 +515,18 @@ function bqQuery(sql, params) {
   });
 }
 
-// Atualiza o token OAuth em memória (expira a cada ~1h; gerar no Cloud Shell: gcloud auth print-access-token)
+// Fallback manual: só necessário se WAYZ_SA_JSON não estiver configurado
 app.post('/api/wayz/token', (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
-  wayzToken = String(token).trim();
-  console.log('Wayz token atualizado em', new Date().toISOString());
+  wayzTokenManual = String(token).trim();
+  saTokenCache = { token: '', expiresAt: 0 }; // descarta cache da SA
+  console.log('Wayz token manual atualizado em', new Date().toISOString());
   res.json({ ok: true });
 });
 
 app.get('/api/wayz/buracos', async (req, res) => {
-  if (!wayzToken)
-    return res.status(401).json({ erro: 'Token Wayz não configurado', semToken: true });
 
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
@@ -526,6 +593,7 @@ app.get('/api/wayz/buracos', async (req, res) => {
     res.json({ ok: true, total: dados.length, dados });
   } catch (e) {
     console.error('GET /api/wayz/buracos:', e.message);
+    if (e.semToken) return res.status(401).json({ erro: e.message, semToken: true });
     res.status(500).json({ erro: e.message });
   }
 });
