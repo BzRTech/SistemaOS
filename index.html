@@ -882,6 +882,17 @@ async function removerFotoAbertura(i) {
   });
 }
 
+async function removerFotoConclusao() {
+  const os = S.osAberta;
+  if (!os) return;
+  if (!confirm('Excluir a foto de conclusão? Esta ação não pode ser desfeita.')) return;
+  S.fotoConclusaoModal = null;
+  await atualizarOS(os.id, {
+    status: os.status, responsavel: os.responsavel || '', equipe: os.equipe || '',
+    historico: os.historico || [], fotoConclusao: null,
+  });
+}
+
 function renderPreviewFoto(containerId, src, onRemove) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -1100,6 +1111,8 @@ async function abrirDetalhes(id) {
   document.getElementById('modalBadge').innerHTML = `<span class="os-badge badge-${os.status}">${labelStatus(os.status)}</span>`;
 
   const finalizada = os.status === 'concluida' || os.status === 'cancelada';
+  // foto de conclusão só fica ativa depois que o buraco for validado
+  const conclusaoLiberada = !finalizada && os.status !== 'aberta';
 
   document.getElementById('modalCorpo').innerHTML = `
     <!-- INFO -->
@@ -1139,12 +1152,15 @@ async function abrirDetalhes(id) {
     <div class="form-card">
       <div class="form-card-title">📸 Foto de Conclusão</div>
       ${os.fotoConclusao
-        ? `<img src="${os.fotoConclusao}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:260px;object-fit:cover" onclick="verFoto('${os.fotoConclusao}')" alt="Foto conclusão">`
+        ? `<div style="position:relative">
+            <img src="${os.fotoConclusao}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:260px;object-fit:cover" onclick="verFoto('${os.fotoConclusao}')" alt="Foto conclusão">
+            ${conclusaoLiberada ? `<button class="foto-remove-btn" onclick="removerFotoConclusao()" title="Excluir foto de conclusão">✕</button>` : ''}
+           </div>`
         : `<div style="text-align:center;padding:24px;color:var(--cinza-texto)">
             <div style="font-size:36px;margin-bottom:8px">📸</div>
             <p style="font-size:13px">Nenhuma foto de conclusão ainda.</p>
            </div>`}
-      ${!finalizada ? `
+      ${finalizada ? '' : (conclusaoLiberada ? `
         <div style="font-size:12px;color:var(--cinza-texto);text-align:center;margin-top:8px">${os.fotoConclusao ? '🔄 Substituir foto de conclusão:' : 'Adicionar foto de conclusão / depois:'}</div>
         <div class="foto-botoes" style="margin-top:6px">
           <div class="foto-upload-area" onclick="document.getElementById('inputAddConclusaoCam').click()">
@@ -1156,7 +1172,10 @@ async function abrirDetalhes(id) {
             <div class="foto-upload-text">🖼️ Da galeria</div>
           </div>
         </div>
-        <div id="previewFotoConclusaoModal"></div>` : ''}
+        <div id="previewFotoConclusaoModal"></div>` : `
+        <div style="display:flex;align-items:center;gap:8px;justify-content:center;text-align:center;margin-top:10px;padding:14px;background:var(--cinza-fundo,#f4f5f7);border:1px dashed var(--cinza-borda);border-radius:var(--radius-sm);color:var(--cinza-texto);font-size:13px">
+          🔒 Disponível somente após o buraco ser validado.
+        </div>`)}
     </div>
 
     <!-- OBS -->
