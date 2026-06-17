@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%B4%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/vendor/leaflet.css">
 <script src="/vendor/leaflet.js"></script>
+<script src="/bairros-jp.js"></script>
 <style>
 :root {
   --primaria: #c8102e;
@@ -84,12 +85,13 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 }
 .filtro-grupo { display: flex; flex-direction: column; gap: 4px; }
 .filtro-grupo label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cinza-texto); }
-.filtro-grupo input {
+.filtro-grupo input, .filtro-grupo select {
   padding: 8px 12px; border: 1.5px solid var(--cinza-borda); border-radius: 8px;
   font-size: 13px; color: var(--cinza-escuro); background: white;
   min-width: 130px;
 }
-.filtro-grupo input:focus { outline: none; border-color: var(--laranja); }
+.filtro-grupo select { cursor: pointer; min-width: 180px; max-width: 240px; }
+.filtro-grupo input:focus, .filtro-grupo select:focus { outline: none; border-color: var(--laranja); }
 .btn-aplicar {
   padding: 9px 20px; background: var(--laranja); color: white; border: none;
   border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
@@ -103,9 +105,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 @media (max-width: 900px) { .conteudo { padding: 16px; } .topo, .filtros-bar { padding: 14px 16px; } }
 
 /* ── Cards ── */
-.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
-@media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 480px) { .cards { grid-template-columns: 1fr; } }
+.cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
+@media (max-width: 1100px) { .cards { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 440px) { .cards { grid-template-columns: 1fr; } }
 .card-stat {
   background: white; border-radius: 14px; padding: 18px;
   box-shadow: var(--sombra); border-top: 4px solid var(--cinza-borda);
@@ -158,6 +161,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .barra-fundo { height: 9px; background: var(--cinza-bg); border-radius: 5px; overflow: hidden; }
 .barra-fill { height: 100%; background: var(--laranja); border-radius: 5px; }
 .barra-fill.dia { background: var(--azul); }
+.barra-fill.bairro { background: var(--verde-medio); }
 
 /* ── Tabela ── */
 .tabela-wrap { overflow-x: auto; }
@@ -236,6 +240,12 @@ tr:hover td { background: #fafbfc; }
       <input type="text" id="fRua" placeholder="Ex: Av. Epitácio..." style="min-width:200px">
     </div>
     <div class="filtro-grupo">
+      <label>Bairro</label>
+      <select id="fBairro" onchange="renderTudo()">
+        <option value="">Todos os bairros</option>
+      </select>
+    </div>
+    <div class="filtro-grupo">
       <label>Mín. relatos</label>
       <input type="number" id="fMinRelatos" value="1" min="1" max="99" style="min-width:90px">
     </div>
@@ -263,6 +273,11 @@ tr:hover td { background: #fafbfc; }
       <div class="rotulo">Ruas identificadas</div>
       <div class="sub-num" id="stRuasTotal"></div>
     </div>
+    <div class="card-stat" style="border-top-color:var(--verde-medio)">
+      <div class="num" id="stBairros" style="color:var(--verde)">–</div>
+      <div class="rotulo">Bairros afetados</div>
+      <div class="sub-num" id="stBairrosSub"></div>
+    </div>
     <div class="card-stat" style="border-top-color:#8a5fd0">
       <div class="num" id="stHoje" style="color:#6a3fb5">–</div>
       <div class="rotulo">Hoje</div>
@@ -285,6 +300,12 @@ tr:hover td { background: #fafbfc; }
       </div>
     </div>
 
+    <!-- Top bairros -->
+    <div class="painel">
+      <h2>🏘️ Buracos por bairro <span class="contador" id="bairroContador"></span></h2>
+      <div id="porBairro"><div class="vazio">Aguardando dados...</div></div>
+    </div>
+
     <!-- Top ruas -->
     <div class="painel">
       <h2>📊 Top 15 ruas com mais buracos</h2>
@@ -292,7 +313,7 @@ tr:hover td { background: #fafbfc; }
     </div>
 
     <!-- Por dia -->
-    <div class="painel">
+    <div class="painel painel-largo">
       <h2>📅 Relatos por dia</h2>
       <div id="porDia"><div class="vazio">Aguardando dados...</div></div>
     </div>
@@ -326,6 +347,27 @@ function diasAtras(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().split('T')[0];
+}
+
+// ── Bairros (atribuição offline por coordenada — mesma base do sistema) ───────
+const SEM_BAIRRO = 'Fora de João Pessoa';
+function bairroPorCoordenada(lat, lng) {
+  const mapa = window.BAIRROS_JP;
+  if (!mapa || lat == null || lng == null) return '';
+  const x = +lng, y = +lat;
+  if (!isFinite(x) || !isFinite(y)) return '';
+  const dentro = (anel) => {
+    let inside = false;
+    for (let i = 0, j = anel.length - 1; i < anel.length; j = i++) {
+      const xi = anel[i][0], yi = anel[i][1], xj = anel[j][0], yj = anel[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  for (const b of mapa) {
+    for (const anel of b.a) if (dentro(anel)) return b.n;
+  }
+  return ''; // fora de João Pessoa (ex.: Cabedelo, Bayeux, Santa Rita)
 }
 
 // ── Defaults de filtro ───────────────────────────────────────────────────────
@@ -380,12 +422,13 @@ function agregarPorCoords(dados) {
     if (d.lat === null || d.lon === null) continue;
     const key = `${d.lat.toFixed(4)},${d.lon.toFixed(4)}`;
     if (!m[key]) {
-      m[key] = { lat: d.lat, lon: d.lon, rua: d.rua, totalRelatos: 0, totalConf: 0, datas: new Set() };
+      m[key] = { lat: d.lat, lon: d.lon, rua: d.rua, bairro: d.bairro, totalRelatos: 0, totalConf: 0, datas: new Set() };
     }
     m[key].totalRelatos += d.relatos;
     m[key].totalConf   += d.confirmacoes;
     if (d.data) m[key].datas.add(d.data);
     if (d.rua)  m[key].rua = d.rua; // prefere rua não-vazia
+    if (d.bairro) m[key].bairro = d.bairro;
   }
   return Object.values(m).map(v => ({ ...v, diasCount: v.datas.size, datasArr: [...v.datas].sort() }));
 }
@@ -429,6 +472,7 @@ function renderMapa(dados) {
       radius: r, color: cor, fillColor: cor, fillOpacity: 0.72, weight: 1.5,
     }).bindPopup(`
       <b>${esc(p.rua || 'Rua não identificada')}</b><br>
+      🏘️ ${esc(p.bairro || SEM_BAIRRO)}<br>
       🔴 <b>${p.totalRelatos}</b> relato(s) em <b>${p.diasCount}</b> dia(s)<br>
       👍 ${p.totalConf} confirmação(ões)<br>
       📅 ${primeiraData} → ${ultimaData}<br>
@@ -456,6 +500,8 @@ function renderCards(dados) {
   const totalRelatos = dados.reduce((s, d) => s + d.relatos, 0);
   const totalConf    = dados.reduce((s, d) => s + d.confirmacoes, 0);
   const ruasSet      = new Set(dados.filter(d => d.rua).map(d => d.rua));
+  const bairrosSet   = new Set(dados.filter(d => d.bairro).map(d => d.bairro));
+  const semBairro    = dados.filter(d => !d.bairro).length;
   const dHoje        = hoje();
   const hoje_relatos = dados.filter(d => d.data === dHoje).reduce((s, d) => s + d.relatos, 0);
   const hoje_pontos  = dados.filter(d => d.data === dHoje).length;
@@ -466,6 +512,8 @@ function renderCards(dados) {
   document.getElementById('stRelatosConf').textContent = `${totalConf} confirmação(ões)`;
   document.getElementById('stRuas').textContent      = ruasSet.size;
   document.getElementById('stRuasTotal').textContent = `${dados.length - dados.filter(d=>d.rua).length} sem nome identificado`;
+  document.getElementById('stBairros').textContent   = bairrosSet.size;
+  document.getElementById('stBairrosSub').textContent = semBairro ? `${semBairro} fora de João Pessoa` : 'todos em João Pessoa';
   document.getElementById('stHoje').textContent      = hoje_relatos || '–';
   document.getElementById('stHojeData').textContent  = hoje_relatos ? `${hoje_pontos} ponto(s)` : 'Sem dados para hoje';
 }
@@ -507,6 +555,19 @@ function renderPorDia(dados) {
   document.getElementById('porDia').innerHTML = barras(diasFmt, 'dia');
 }
 
+function renderPorBairro(dados) {
+  const m = {};
+  for (const d of dados) {
+    const k = d.bairro || SEM_BAIRRO;
+    m[k] = (m[k] || 0) + d.relatos;
+  }
+  const ordenado = Object.entries(m).sort((a,b) => b[1]-a[1]);
+  const top = ordenado.slice(0, 15);
+  const nComBairro = Object.keys(m).filter(k => k !== SEM_BAIRRO).length;
+  document.getElementById('bairroContador').textContent = nComBairro ? `· ${nComBairro} bairro(s)` : '';
+  document.getElementById('porBairro').innerHTML = barras(top, 'bairro');
+}
+
 // ── Tabela ───────────────────────────────────────────────────────────────────
 let tabelaDados = [];
 let sortCol = 'relatos', sortAsc = false;
@@ -541,6 +602,7 @@ function renderTabelaOrdenada() {
   const cols = [
     { key: 'data',    label: 'Data' },
     { key: 'rua',     label: 'Rua / Logradouro' },
+    { key: 'bairro',  label: 'Bairro' },
     { key: 'relatos', label: 'Relatos' },
     { key: 'confirmacoes', label: 'Confirmações' },
     { key: 'score',   label: 'Score' },
@@ -561,9 +623,13 @@ function renderTabelaOrdenada() {
     const ruaHtml = d.rua
       ? `<span>${esc(d.rua)}</span>`
       : `<span class="tag-sem-rua">Rua não identificada</span>`;
+    const bairroHtml = d.bairro
+      ? `<span>${esc(d.bairro)}</span>`
+      : `<span class="tag-sem-rua">${SEM_BAIRRO}</span>`;
     return `<tr>
       <td>${fmtData(d.data)}</td>
       <td>${ruaHtml}</td>
+      <td>${bairroHtml}</td>
       <td>${badgeRelato(d.relatos)}</td>
       <td>${d.confirmacoes}</td>
       <td>${d.score}</td>
@@ -584,12 +650,57 @@ function ordenarPor(col) {
   renderTabelaOrdenada();
 }
 
+// ── Filtro de bairro (client-side) ────────────────────────────────────────────
+let dadosEnriquecidos = []; // todos os registros do período, já com bairro
+
+function popularSelectBairros() {
+  const sel = document.getElementById('fBairro');
+  const atual = sel.value;
+  const relatosPorBairro = {};
+  for (const d of dadosEnriquecidos) {
+    const k = d.bairro || SEM_BAIRRO;
+    relatosPorBairro[k] = (relatosPorBairro[k] || 0) + d.relatos;
+  }
+  const comBairro = Object.keys(relatosPorBairro)
+    .filter(k => k !== SEM_BAIRRO)
+    .sort((a, b) => a.localeCompare(b, 'pt'));
+  const opcoes = ['<option value="">Todos os bairros</option>'];
+  for (const n of comBairro) {
+    opcoes.push(`<option value="${esc(n)}">${esc(n)} (${relatosPorBairro[n]})</option>`);
+  }
+  if (relatosPorBairro[SEM_BAIRRO]) {
+    opcoes.push(`<option value="__sem__">${SEM_BAIRRO} (${relatosPorBairro[SEM_BAIRRO]})</option>`);
+  }
+  sel.innerHTML = opcoes.join('');
+  // preserva a seleção atual se ainda existir
+  sel.value = [...sel.options].some(o => o.value === atual) ? atual : '';
+}
+
+function dadosFiltradosPorBairro() {
+  const b = document.getElementById('fBairro').value;
+  if (!b) return dadosEnriquecidos;
+  if (b === '__sem__') return dadosEnriquecidos.filter(d => !d.bairro);
+  return dadosEnriquecidos.filter(d => d.bairro === b);
+}
+
+// re-renderiza tudo a partir do cache (sem nova consulta ao BigQuery)
+function renderTudo() {
+  const filtrados = dadosFiltradosPorBairro();
+  renderCards(filtrados);
+  renderMapa(filtrados);
+  renderPorRua(filtrados);
+  renderPorDia(filtrados);
+  renderPorBairro(dadosEnriquecidos); // ranking sempre considera todos os bairros
+  renderTabela(filtrados);
+}
+
 // ── Carregamento principal ───────────────────────────────────────────────────
 function setCarregando(sim) {
   const btn = document.getElementById('btnAplicar');
   btn.disabled = sim;
   btn.textContent = sim ? '⏳ Carregando...' : '🔍 Aplicar filtros';
   if (sim) {
+    document.getElementById('porBairro').innerHTML = '<div class="carregando">⏳ Carregando...</div>';
     document.getElementById('porRua').innerHTML  = '<div class="carregando">⏳ Carregando...</div>';
     document.getElementById('porDia').innerHTML  = '<div class="carregando">⏳ Carregando...</div>';
     document.getElementById('tabela').innerHTML  = '<div class="carregando">⏳ Carregando...</div>';
@@ -631,11 +742,10 @@ async function carregar() {
     document.getElementById('tokenBanner').style.display = 'none';
 
     const { dados } = json;
-    renderCards(dados);
-    renderMapa(dados);
-    renderPorRua(dados);
-    renderPorDia(dados);
-    renderTabela(dados);
+    // atribui o bairro de cada ponto pela coordenada (offline, base do sistema)
+    dadosEnriquecidos = dados.map(d => ({ ...d, bairro: bairroPorCoordenada(d.lat, d.lon) }));
+    popularSelectBairros();
+    renderTudo();
 
     document.getElementById('atualizadoEm').textContent =
       'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
