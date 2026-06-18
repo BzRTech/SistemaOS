@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const https = require('https');
-const crypto = require('crypto');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
@@ -421,75 +420,10 @@ const BQ_PROJECT = 'testes-waze';
 const BQ_DATASET = '_5e4672ad25f1dd1e88fd4c6e4e08ded39e5355d4';
 const BQ_TABLE   = 'anonev_CQ4kaid0Yt38JYg3VVol8cWTw6sHwxBRzpwJLB4lMd0';
 
-// Service Account: carregada de WAZE_SA_JSON (nunca sobe ao repositório)
-let saCredentials = null;
-try {
-  const raw = process.env.WAZE_SA_JSON;
-  if (raw) {
-    saCredentials = JSON.parse(raw);
-    console.log('Waze: Service Account configurada —', saCredentials.client_email);
-  }
-} catch (e) { console.warn('WAZE_SA_JSON inválido:', e.message); }
+// Token OAuth (expira a cada ~1h; renovar via POST /api/waze/token)
+let wazeToken = process.env.WAZE_TOKEN || '';
 
-// Fallback: token manual (legado)
-let wazeTokenManual = process.env.WAZE_TOKEN || '';
-let saTokenCache = { token: '', expiresAt: 0 };
-
-function base64url(buf) {
-  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-// Troca a chave privada da SA por um access_token OAuth2; renova 2 min antes de expirar
-function getServiceAccountToken() {
-  if (saTokenCache.token && Date.now() < saTokenCache.expiresAt - 120000)
-    return Promise.resolve(saTokenCache.token);
-
-  const sa  = saCredentials;
-  const now = Math.floor(Date.now() / 1000);
-  const hdr = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
-  const pld = base64url(Buffer.from(JSON.stringify({
-    iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/bigquery.readonly',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600, iat: now,
-  })));
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(`${hdr}.${pld}`);
-  const jwt  = `${hdr}.${pld}.${base64url(sign.sign(sa.private_key))}`;
-  const body = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`;
-
-  return new Promise((resolve, reject) => {
-    const req = https.request({
-      hostname: 'oauth2.googleapis.com',
-      path: '/token',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
-    }, (res) => {
-      let d = '';
-      res.on('data', c => d += c);
-      res.on('end', () => {
-        try {
-          const j = JSON.parse(d);
-          if (!j.access_token) return reject(new Error(j.error_description || 'Falha ao obter token SA'));
-          saTokenCache = { token: j.access_token, expiresAt: Date.now() + (j.expires_in || 3600) * 1000 };
-          resolve(saTokenCache.token);
-        } catch { reject(new Error('Resposta inválida do OAuth2')); }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-async function getWazeToken() {
-  if (saCredentials) return getServiceAccountToken();
-  if (!wazeTokenManual) { const e = new Error('Token Waze não configurado'); e.semToken = true; throw e; }
-  return wazeTokenManual;
-}
-
-async function bqQuery(sql, params) {
-  const token = await getWazeToken();
+function bqQuery(sql, params) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ query: sql, useLegacySql: false, timeoutMs: 30000, queryParameters: params || [] });
     const req = https.request({
@@ -497,7 +431,7 @@ async function bqQuery(sql, params) {
       path: `/bigquery/v2/projects/${BQ_PROJECT}/queries`,
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${wazeToken}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
       },
@@ -515,18 +449,19 @@ async function bqQuery(sql, params) {
   });
 }
 
-// Fallback manual: só necessário se WAZE_SA_JSON não estiver configurado
+// Atualiza o token OAuth em memória (gerar no Cloud Shell: gcloud auth print-access-token)
 app.post('/api/waze/token', (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
-  wazeTokenManual = String(token).trim();
-  saTokenCache = { token: '', expiresAt: 0 }; // descarta cache da SA
-  console.log('Waze token manual atualizado em', new Date().toISOString());
+  wazeToken = String(token).trim();
+  console.log('Waze token atualizado em', new Date().toISOString());
   res.json({ ok: true });
 });
 
 app.get('/api/waze/buracos', async (req, res) => {
+  if (!wazeToken)
+    return res.status(401).json({ erro: 'Token Waze não configurado', semToken: true });
 
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
@@ -593,7 +528,6 @@ app.get('/api/waze/buracos', async (req, res) => {
     res.json({ ok: true, total: dados.length, dados });
   } catch (e) {
     console.error('GET /api/waze/buracos:', e.message);
-    if (e.semToken) return res.status(401).json({ erro: e.message, semToken: true });
     res.status(500).json({ erro: e.message });
   }
 });
