@@ -434,16 +434,24 @@ app.delete('/api/ordens/:id', async (req, res) => {
 });
 
 // ─── Waze / BigQuery ──────────────────────────────────────────────────────────
-const BQ_PROJECT = 'testes-waze';
-const BQ_DATASET = '_5e4672ad25f1dd1e88fd4c6e4e08ded39e5355d4';
-const BQ_TABLE   = 'anonev_CQ4kaid0Yt38JYg3VVol8cWTw6sHwxBRzpwJLB4lMd0';
+// Configure via env vars: WAZE_BQ_PROJECT, WAZE_BQ_DATASET, WAZE_BQ_TABLE, WAZE_BQ_LOCATION
+const BQ_PROJECT  = process.env.WAZE_BQ_PROJECT  || 'testes-waze';
+const BQ_DATASET  = process.env.WAZE_BQ_DATASET  || '';
+const BQ_TABLE    = process.env.WAZE_BQ_TABLE    || '';
+const BQ_LOCATION = process.env.WAZE_BQ_LOCATION || 'US';
 
 // Token OAuth (expira a cada ~1h; renovar via POST /api/waze/token)
 let wazeToken = process.env.WAZE_TOKEN || '';
 
 function bqQuery(sql, params) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ query: sql, useLegacySql: false, timeoutMs: 30000, queryParameters: params || [] });
+    const body = JSON.stringify({
+      query: sql,
+      useLegacySql: false,
+      timeoutMs: 30000,
+      location: BQ_LOCATION,
+      queryParameters: params || [],
+    });
     const req = https.request({
       hostname: 'bigquery.googleapis.com',
       path: `/bigquery/v2/projects/${BQ_PROJECT}/queries`,
@@ -470,6 +478,10 @@ function bqQuery(sql, params) {
 // Busca TODOS os buracos do BigQuery e faz upsert no Neon. Acumula histórico:
 // dias novos são inseridos, dias já existentes têm os números atualizados.
 async function sincronizarBuracos() {
+  if (!BQ_DATASET || !BQ_TABLE) {
+    throw new Error('Tabela BigQuery não configurada. Defina WAZE_BQ_DATASET e WAZE_BQ_TABLE nas variáveis de ambiente.');
+  }
+
   const sql = `
     SELECT clmn1_ AS coordenadas, clmn2_ AS data,
            COALESCE(clmn4_, '') AS rua,
@@ -558,6 +570,17 @@ app.post('/api/waze/token', async (req, res) => {
       return res.status(401).json({ erro: 'Token inválido ou expirado', tokenExpirado: true });
     res.status(500).json({ erro: 'Token salvo, mas a sincronização falhou: ' + e.message });
   }
+});
+
+// Retorna a configuração BigQuery atual (sem expor o token).
+app.get('/api/waze/config', (req, res) => {
+  res.json({
+    projeto:  BQ_PROJECT,
+    dataset:  BQ_DATASET  || null,
+    tabela:   BQ_TABLE    || null,
+    location: BQ_LOCATION,
+    configurado: !!(BQ_DATASET && BQ_TABLE),
+  });
 });
 
 // Lê os buracos do banco (Neon) com os filtros — não depende do token.
