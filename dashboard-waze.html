@@ -407,10 +407,30 @@ async function atualizarToken() {
 function mostrarTokenBanner() {
   document.getElementById('tokenBanner').style.display = 'block';
   document.getElementById('tokenInput').focus();
+  verificarConfigBQ();
 }
 
 function fecharTokenBanner() {
   document.getElementById('tokenBanner').style.display = 'none';
+}
+
+async function verificarConfigBQ() {
+  try {
+    const r = await fetch('/api/waze/config');
+    const cfg = await r.json();
+    const msg = document.getElementById('tokenMsg');
+    if (!cfg.configurado) {
+      msg.innerHTML = `⚠️ <strong>Tabela BigQuery não configurada.</strong> Defina as variáveis de ambiente no Render:<br>
+        <code>WAZE_BQ_PROJECT</code> = ${esc(cfg.projeto || 'testes-waze')}<br>
+        <code>WAZE_BQ_DATASET</code> = nome do dataset (ex: <code>waze_data</code>)<br>
+        <code>WAZE_BQ_TABLE</code> = nome da tabela (ex: <code>buracos</code>)<br>
+        <code>WAZE_BQ_LOCATION</code> = região do BigQuery (ex: <code>southamerica-east1</code> ou <code>US</code>)`;
+      msg.className = 'erro';
+    } else {
+      msg.textContent = `Tabela configurada: ${cfg.projeto}.${cfg.dataset}.${cfg.tabela} (${cfg.location})`;
+      msg.className = '';
+    }
+  } catch {}
 }
 
 // ── Mapa ─────────────────────────────────────────────────────────────────────
