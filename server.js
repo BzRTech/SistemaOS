@@ -146,6 +146,24 @@ async function iniciarBanco() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_criado_em ON ordens_servico (criado_em DESC)`);
 
+  // Buracos do Waze (BigQuery) persistidos no Neon: acumula histórico além
+  // da janela de 7 dias do BigQuery. Chave natural = coordenada + data.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS waze_buracos (
+      coordenadas     TEXT NOT NULL,
+      data            DATE NOT NULL,
+      lat             DOUBLE PRECISION,
+      lon             DOUBLE PRECISION,
+      rua             TEXT,
+      relatos         INTEGER DEFAULT 0,
+      confirmacoes    INTEGER DEFAULT 0,
+      score           INTEGER DEFAULT 0,
+      sincronizado_em TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (coordenadas, data)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_waze_data ON waze_buracos (data DESC)`);
+
   console.log('Banco de dados pronto!');
 }
 
@@ -449,20 +467,101 @@ function bqQuery(sql, params) {
   });
 }
 
-// Atualiza o token OAuth em memória (gerar no Cloud Shell: gcloud auth print-access-token)
-app.post('/api/waze/token', (req, res) => {
+// Busca TODOS os buracos do BigQuery e faz upsert no Neon. Acumula histórico:
+// dias novos são inseridos, dias já existentes têm os números atualizados.
+async function sincronizarBuracos() {
+  const sql = `
+    SELECT clmn1_ AS coordenadas, clmn2_ AS data,
+           COALESCE(clmn4_, '') AS rua,
+           CAST(t0_qt_fvgeseri4d AS INT64) AS relatos,
+           CAST(t0_qt_jtzijkri4d AS INT64) AS confirmacoes,
+           CAST(clmn0_           AS INT64) AS score
+    FROM \`${BQ_PROJECT}.${BQ_DATASET}.${BQ_TABLE}\`
+    WHERE clmn1_ IS NOT NULL AND clmn2_ IS NOT NULL
+    ORDER BY clmn2_ DESC
+    LIMIT 50000`;
+
+  const { data } = await bqQuery(sql, []);
+  if (data.error) {
+    const e = new Error(data.error.message || 'Erro no BigQuery');
+    e.code = data.error.code;
+    throw e;
+  }
+
+  const cols = (data.schema?.fields || []).map(f => f.name);
+  const linhas = (data.rows || []).map(row => {
+    const v = Object.fromEntries(cols.map((c, i) => [c, row.f[i].v]));
+    const parts = v.coordenadas ? String(v.coordenadas).split(',') : [];
+    const lat = parseFloat(parts[0]), lon = parseFloat(parts[1]);
+    return {
+      coordenadas:  v.coordenadas || '',
+      data:         v.data || null,
+      lat:          isNaN(lat) ? null : lat,
+      lon:          isNaN(lon) ? null : lon,
+      rua:          v.rua || '',
+      relatos:      parseInt(v.relatos)      || 0,
+      confirmacoes: parseInt(v.confirmacoes) || 0,
+      score:        parseInt(v.score)        || 0,
+    };
+  }).filter(l => l.coordenadas && l.data);
+
+  let gravados = 0;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (let i = 0; i < linhas.length; i += 500) {
+      const lote = linhas.slice(i, i + 500);
+      const vals = [];
+      const ph = lote.map((l, k) => {
+        const b = k * 8;
+        vals.push(l.coordenadas, l.data, l.lat, l.lon, l.rua, l.relatos, l.confirmacoes, l.score);
+        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`;
+      }).join(',');
+      await client.query(`
+        INSERT INTO waze_buracos (coordenadas, data, lat, lon, rua, relatos, confirmacoes, score)
+        VALUES ${ph}
+        ON CONFLICT (coordenadas, data) DO UPDATE SET
+          lat = EXCLUDED.lat, lon = EXCLUDED.lon, rua = EXCLUDED.rua,
+          relatos = EXCLUDED.relatos, confirmacoes = EXCLUDED.confirmacoes,
+          score = EXCLUDED.score, sincronizado_em = NOW()
+      `, vals);
+      gravados += lote.length;
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS total FROM waze_buracos');
+  return { gravados, totalBanco: rows[0].total, sincronizadoEm: new Date().toISOString() };
+}
+
+// Recebe o token, sincroniza o BigQuery → Neon e devolve o resultado.
+// O token é usado apenas para esta sincronização; os dados ficam no banco.
+app.post('/api/waze/token', async (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
   wazeToken = String(token).trim();
   console.log('Waze token atualizado em', new Date().toISOString());
-  res.json({ ok: true });
+
+  try {
+    const r = await sincronizarBuracos();
+    console.log(`Waze: ${r.gravados} registros sincronizados (${r.totalBanco} no banco)`);
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    console.error('Sincronização Waze falhou:', e.message);
+    if (e.code === 401 || e.code === 403)
+      return res.status(401).json({ erro: 'Token inválido ou expirado', tokenExpirado: true });
+    res.status(500).json({ erro: 'Token salvo, mas a sincronização falhou: ' + e.message });
+  }
 });
 
+// Lê os buracos do banco (Neon) com os filtros — não depende do token.
 app.get('/api/waze/buracos', async (req, res) => {
-  if (!wazeToken)
-    return res.status(401).json({ erro: 'Token Waze não configurado', semToken: true });
-
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
   const df  = validDate(req.query.dataFim);
@@ -471,70 +570,43 @@ app.get('/api/waze/buracos', async (req, res) => {
     ? String(req.query.rua).replace(/['"\\;%]/g, '').trim().slice(0, 100)
     : null;
 
-  const conds  = ['t0_qt_fvgeseri4d >= @minRelatos'];
-  const params = [{ name: 'minRelatos', parameterType: { type: 'INT64' }, parameterValue: { value: String(mr) } }];
-
-  if (di) {
-    conds.push('clmn2_ >= @di');
-    params.push({ name: 'di', parameterType: { type: 'DATE' }, parameterValue: { value: di } });
-  }
-  if (df) {
-    conds.push('clmn2_ <= @df');
-    params.push({ name: 'df', parameterType: { type: 'DATE' }, parameterValue: { value: df } });
-  }
-  if (rua) {
-    conds.push("LOWER(COALESCE(clmn4_, '')) LIKE LOWER(@rua)");
-    params.push({ name: 'rua', parameterType: { type: 'STRING' }, parameterValue: { value: `%${rua}%` } });
-  }
-
-  const sql = `
-    SELECT clmn1_ AS coordenadas, clmn2_ AS data,
-           COALESCE(clmn4_, '') AS rua,
-           CAST(t0_qt_fvgeseri4d AS INT64) AS relatos,
-           CAST(t0_qt_jtzijkri4d AS INT64) AS confirmacoes,
-           CAST(clmn0_           AS INT64) AS score
-    FROM \`${BQ_PROJECT}.${BQ_DATASET}.${BQ_TABLE}\`
-    WHERE ${conds.join(' AND ')}
-    ORDER BY clmn2_ DESC, t0_qt_fvgeseri4d DESC
-    LIMIT 5000`;
+  const conds  = ['relatos >= $1'];
+  const params = [mr];
+  if (di)  { params.push(di);  conds.push(`data >= $${params.length}`); }
+  if (df)  { params.push(df);  conds.push(`data <= $${params.length}`); }
+  if (rua) { params.push(`%${rua}%`); conds.push(`LOWER(COALESCE(rua, '')) LIKE LOWER($${params.length})`); }
 
   try {
-    const { data } = await bqQuery(sql, params);
+    const { rows } = await pool.query(`
+      SELECT coordenadas, lat, lon, to_char(data, 'YYYY-MM-DD') AS data,
+             rua, relatos, confirmacoes, score
+      FROM waze_buracos
+      WHERE ${conds.join(' AND ')}
+      ORDER BY data DESC, relatos DESC
+      LIMIT 20000
+    `, params);
 
-    if (data.error) {
-      const c = data.error.code;
-      console.error('BigQuery negou a consulta:', c, JSON.stringify(data.error));
-      if (c === 401 || c === 403) {
-        // Com Service Account, 401/403 é falta de permissão no BigQuery — não adianta colar token.
-        if (saCredentials)
-          return res.status(403).json({
-            erro: 'A Service Account não tem permissão no BigQuery. Conceda os papéis "BigQuery Data Viewer" e "BigQuery Job User" à conta ' +
-                  (saCredentials.client_email || '') + ' no projeto ' + BQ_PROJECT + '. Detalhe: ' + (data.error.message || ''),
-            semPermissao: true,
-          });
-        return res.status(401).json({ erro: 'Token Waze expirado', tokenExpirado: true });
-      }
-      return res.status(500).json({ erro: data.error.message });
-    }
+    const dados = rows.map(r => ({
+      coordenadas:  r.coordenadas || '',
+      lat:          r.lat,
+      lon:          r.lon,
+      data:         r.data || '',
+      rua:          r.rua || '',
+      relatos:      r.relatos || 0,
+      confirmacoes: r.confirmacoes || 0,
+      score:        r.score || 0,
+    }));
 
-    const cols = (data.schema?.fields || []).map(f => f.name);
-    const dados = (data.rows || []).map(row => {
-      const v = Object.fromEntries(cols.map((c, i) => [c, row.f[i].v]));
-      const parts = v.coordenadas ? String(v.coordenadas).split(',') : [];
-      const lat = parseFloat(parts[0]), lon = parseFloat(parts[1]);
-      return {
-        coordenadas:  v.coordenadas  || '',
-        lat:          isNaN(lat)  ? null : lat,
-        lon:          isNaN(lon)  ? null : lon,
-        data:         v.data         || '',
-        rua:          v.rua          || '',
-        relatos:      parseInt(v.relatos)       || 0,
-        confirmacoes: parseInt(v.confirmacoes)  || 0,
-        score:        parseInt(v.score)         || 0,
-      };
+    const { rows: meta } = await pool.query(
+      'SELECT MAX(sincronizado_em) AS ultima, COUNT(*)::int AS total FROM waze_buracos'
+    );
+
+    res.json({
+      ok: true, total: dados.length, dados,
+      sincronizadoEm: meta[0].ultima,
+      totalBanco: meta[0].total,
+      bancoVazio: meta[0].total === 0,
     });
-
-    res.json({ ok: true, total: dados.length, dados });
   } catch (e) {
     console.error('GET /api/waze/buracos:', e.message);
     res.status(500).json({ erro: e.message });

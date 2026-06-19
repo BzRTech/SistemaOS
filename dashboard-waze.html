@@ -52,6 +52,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   padding: 8px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; white-space: nowrap;
 }
 .btn-nav:hover { background: rgba(255,255,255,0.24); }
+button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 
 /* ── Token banner ── */
 .token-banner {
@@ -207,18 +208,20 @@ tr:hover td { background: #fafbfc; }
   </div>
   <div class="topo-acoes">
     <span class="atualizado" id="atualizadoEm"></span>
+    <button class="btn-nav" onclick="mostrarTokenBanner()" title="Sincronizar com o Waze">🔄 Atualizar dados</button>
     <a class="btn-nav" href="/dashboard.html">📊 Dashboard OS</a>
     <a class="btn-nav" href="/">← Sistema</a>
   </div>
 </header>
 
-<!-- Token banner (exibido quando o token expira) -->
+<!-- Banner de sincronização (token usado só para puxar dados e gravar no banco) -->
 <div id="tokenBanner" class="token-banner" style="display:none">
   <div class="token-inner">
-    <div>⚠️ <strong>Token Waze expirado ou não configurado.</strong> Gere um novo em: <code>gcloud auth print-access-token</code> (Cloud Shell do Google Cloud).</div>
+    <div>🔄 <strong>Atualizar dados do Waze.</strong> Cole um token para puxar as ocorrências mais recentes do BigQuery e gravá-las no banco. Gere com <code>gcloud auth print-access-token</code> (Cloud Shell). O token é usado só agora — os dados ficam salvos e o painel continua funcionando depois que ele expirar.</div>
     <div class="token-form">
       <input type="password" id="tokenInput" placeholder="ya29.a0AT3oNZ...">
-      <button onclick="atualizarToken()">Salvar token</button>
+      <button onclick="atualizarToken()">Sincronizar</button>
+      <button onclick="fecharTokenBanner()" style="background:#9aa0a6">Fechar</button>
     </div>
     <div id="tokenMsg"></div>
   </div>
@@ -374,24 +377,27 @@ function bairroPorCoordenada(lat, lng) {
 document.getElementById('fDataInicio').value = diasAtras(7);
 document.getElementById('fDataFim').value    = hoje();
 
-// ── Token ────────────────────────────────────────────────────────────────────
+// ── Token / Sincronização ─────────────────────────────────────────────────────
 async function atualizarToken() {
   const token = document.getElementById('tokenInput').value.trim();
   const msg   = document.getElementById('tokenMsg');
-  if (!token) { msg.textContent = 'Cole o token antes de salvar.'; msg.className = 'erro'; return; }
+  if (!token) { msg.textContent = 'Cole o token antes de sincronizar.'; msg.className = 'erro'; return; }
+  msg.textContent = '⏳ Sincronizando dados do Waze... (pode levar alguns segundos)';
+  msg.className = '';
   try {
     const r = await fetch('/api/waze/token', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
-    if (!r.ok) throw new Error('Erro ao salvar token');
-    msg.textContent = '✅ Token salvo! Recarregando dados...';
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.erro || 'Erro ao sincronizar');
+    msg.textContent = `✅ ${json.gravados} registro(s) sincronizados — ${json.totalBanco} no banco. Recarregando...`;
     msg.className = '';
     document.getElementById('tokenInput').value = '';
     setTimeout(() => {
       document.getElementById('tokenBanner').style.display = 'none';
       carregar();
-    }, 1200);
+    }, 1500);
   } catch (e) {
     msg.textContent = '❌ ' + e.message;
     msg.className = 'erro';
@@ -401,6 +407,10 @@ async function atualizarToken() {
 function mostrarTokenBanner() {
   document.getElementById('tokenBanner').style.display = 'block';
   document.getElementById('tokenInput').focus();
+}
+
+function fecharTokenBanner() {
+  document.getElementById('tokenBanner').style.display = 'none';
 }
 
 // ── Mapa ─────────────────────────────────────────────────────────────────────
@@ -727,25 +737,9 @@ async function carregar() {
     const r = await fetch('/api/waze/buracos?' + params.toString());
     const json = await r.json();
 
-    if (!r.ok) {
-      if (json.semPermissao) {
-        document.getElementById('erro').innerHTML =
-          `<div class="erro-box">🔒 ${json.erro || 'A Service Account não tem permissão no BigQuery.'}</div>`;
-        setCarregando(false);
-        return;
-      }
-      if (json.tokenExpirado || json.semToken) {
-        mostrarTokenBanner();
-        document.getElementById('erro').innerHTML =
-          `<div class="erro-box">🔑 Token Waze expirado. Cole um novo token no campo acima para continuar.</div>`;
-        setCarregando(false);
-        return;
-      }
-      throw new Error(json.erro || `Erro HTTP ${r.status}`);
-    }
+    if (!r.ok) throw new Error(json.erro || `Erro HTTP ${r.status}`);
 
     document.getElementById('erro').innerHTML = '';
-    document.getElementById('tokenBanner').style.display = 'none';
 
     const { dados } = json;
     // atribui o bairro de cada ponto pela coordenada (offline, base do sistema)
@@ -753,8 +747,21 @@ async function carregar() {
     popularSelectBairros();
     renderTudo();
 
-    document.getElementById('atualizadoEm').textContent =
-      'Atualizado às ' + new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    // mostra quando o banco foi sincronizado pela última vez
+    if (json.sincronizadoEm) {
+      const dt = new Date(json.sincronizadoEm);
+      document.getElementById('atualizadoEm').textContent =
+        '🗄️ Sincronizado em ' + dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    } else {
+      document.getElementById('atualizadoEm').textContent = 'Banco ainda não sincronizado';
+    }
+
+    // banco vazio → orienta o usuário a fazer a primeira sincronização
+    if (json.bancoVazio) {
+      document.getElementById('erro').innerHTML =
+        `<div class="erro-box" style="background:#fff8e1;color:#7a5200">📭 Nenhum dado no banco ainda. Clique em <strong>🔄 Atualizar dados</strong> e cole um token para a primeira sincronização.</div>`;
+      mostrarTokenBanner();
+    }
 
   } catch (e) {
     document.getElementById('erro').innerHTML =
