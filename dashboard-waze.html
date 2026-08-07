@@ -199,18 +199,37 @@ tr:hover td { background: #fafbfc; }
 }
 </style>
 </head>
+<script>
+(function() {
+  const tk = localStorage.getItem('os_token');
+  if (!tk) { window.location.replace('/login.html'); return; }
+  const _f = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+      opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + localStorage.getItem('os_token') });
+    }
+    return _f.call(this, url, opts).then(r => {
+      if (r.status === 401) { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+      return r;
+    });
+  };
+})();
+function logout() { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+</script>
 <body>
 
 <header class="topo">
   <div>
     <h1>🔴 Dashboard Waze</h1>
-    <div class="sub">Secretaria de Infraestrutura · João Pessoa, PB</div>
+    <div class="sub" id="usuarioSub">Secretaria de Infraestrutura · João Pessoa, PB</div>
   </div>
   <div class="topo-acoes">
     <span class="atualizado" id="atualizadoEm"></span>
     <button class="btn-nav" onclick="mostrarTokenBanner()" title="Sincronizar com o Waze">🔄 Atualizar dados</button>
     <a class="btn-nav" href="/dashboard.html">📊 Dashboard OS</a>
     <a class="btn-nav" href="/">← Sistema</a>
+    <button onclick="logout()" style="background:rgba(255,255,255,.14);color:white;border:none;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Sair</button>
   </div>
 </header>
 
@@ -221,9 +240,11 @@ tr:hover td { background: #fafbfc; }
     <div class="token-form">
       <input type="password" id="tokenInput" placeholder="ya29.a0AT3oNZ...">
       <button onclick="atualizarToken()">Sincronizar</button>
+      <button onclick="explorarBQ()" style="background:#1a73e8">🔍 Explorar tabelas</button>
       <button onclick="fecharTokenBanner()" style="background:#9aa0a6">Fechar</button>
     </div>
     <div id="tokenMsg"></div>
+    <div id="explorarResult" style="display:none;margin-top:12px;background:#1e1e1e;border-radius:6px;padding:12px;font-size:13px;max-height:320px;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -433,6 +454,48 @@ function fecharTokenBanner() {
   document.getElementById('tokenBanner').style.display = 'none';
 }
 
+async function explorarBQ() {
+  const token = document.getElementById('tokenInput').value.trim();
+  const msg = document.getElementById('tokenMsg');
+  const res = document.getElementById('explorarResult');
+  if (!token) { msg.textContent = 'Cole o token antes de explorar.'; msg.className = 'erro'; return; }
+  msg.textContent = '⏳ Explorando projetos BigQuery...';
+  msg.className = '';
+  res.style.display = 'none';
+  try {
+    const r = await fetch('/api/waze/explorar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.erro || 'Erro');
+    msg.textContent = `✅ Projetos encontrados: ${json.projetos.join(', ')}`;
+    msg.className = '';
+    if (!json.resultado.length) {
+      res.innerHTML = '<em style="color:#aaa">Nenhum dataset permanente encontrado nos projetos acessíveis.</em>';
+    } else {
+      let html = '';
+      for (const proj of json.resultado) {
+        html += `<div style="color:#8ab4f8;font-weight:bold;margin-bottom:4px">📁 ${esc(proj.projeto)}</div>`;
+        for (const ds of proj.datasets) {
+          html += `<div style="margin-left:12px;color:#81c995">📂 ${esc(ds.dataset)}</div>`;
+          for (const tb of ds.tabelas) {
+            html += `<div style="margin-left:24px;color:#e8eaed">` +
+              `📋 <strong>${esc(tb.tabela)}</strong> — ${esc(tb.tipo)} — ${esc(tb.linhas)} linhas<br>` +
+              `<code style="color:#fdd663;font-size:11px">${esc(tb.fullId)}</code></div>`;
+          }
+        }
+        html += '<br>';
+      }
+      res.innerHTML = html;
+    }
+    res.style.display = 'block';
+  } catch (e) {
+    msg.textContent = '❌ ' + e.message;
+    msg.className = 'erro';
+  }
+}
+
 // ── Mapa ─────────────────────────────────────────────────────────────────────
 let mapa = null, camada = null, primeiraVezMapa = true;
 
@@ -559,7 +622,7 @@ function barras(itens, cls) {
         <span class="qtd">${qtd}</span>
       </div>
       <div class="barra-fundo">
-        <div class="barra-fill ${cls||''}" style="width:${Math.max(3, Math.round(qtd/max*100))}%"></div>
+        <div class="barra-fill ${cls||\'\'}" style="width:${Math.max(3, Math.round(qtd/max*100))}%"></div>
       </div>
     </div>`).join('');
 }
@@ -793,6 +856,14 @@ async function carregar() {
 
 // Inicia ao carregar a página
 carregar();
+
+// Mostra nome do usuário logado
+fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
+  if (!data) return;
+  const roles = { empresa: 'Empresa', admin: 'Admin', coordenador: 'Coordenador' };
+  const el = document.getElementById('usuarioSub');
+  if (el) el.textContent = `${data.usuario.nome} · ${roles[data.usuario.role] || data.usuario.role}`;
+}).catch(() => {});
 </script>
 </body>
 </html>
