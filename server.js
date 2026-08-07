@@ -4,6 +4,8 @@ const cors = require('cors');
 const https = require('https');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const jwt    = require('jsonwebtoken');
 
 const app = express();
 
@@ -19,6 +21,8 @@ const pool = new Pool({
   connectionString: databaseUrl,
   ssl: precisaSSL ? { rejectUnauthorized: false } : false,
 });
+
+const JWT_SECRET = process.env.JWT_SECRET || 'mude-isso-em-producao-defina-JWT_SECRET';
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -164,6 +168,38 @@ async function iniciarBanco() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_waze_data ON waze_buracos (data DESC)`);
 
+  // ── Tabela de usuários ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id            TEXT PRIMARY KEY,
+      nome          TEXT NOT NULL,
+      email         TEXT UNIQUE NOT NULL,
+      senha_hash    TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'coordenador'
+                    CHECK (role IN ('empresa', 'admin', 'coordenador')),
+      ativo         BOOLEAN NOT NULL DEFAULT true,
+      criado_em     TIMESTAMPTZ DEFAULT NOW(),
+      ultimo_acesso TIMESTAMPTZ
+    )
+  `);
+
+  // Cria o primeiro usuário (empresa) se o banco estiver vazio
+  const { rows: semUsuarios } = await pool.query('SELECT id FROM usuarios LIMIT 1');
+  if (!semUsuarios.length) {
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@sistema.local';
+    const adminSenha = process.env.ADMIN_SENHA || 'admin123';
+    const hash = await bcrypt.hash(adminSenha, 12);
+    await pool.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, role)
+       VALUES ($1, 'Administrador', $2, $3, 'empresa')`,
+      [uuidv4(), adminEmail, hash]
+    );
+    console.log(`Usuário inicial criado — email: ${adminEmail}`);
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_SENHA) {
+      console.warn('⚠  Defina ADMIN_EMAIL e ADMIN_SENHA nas variáveis de ambiente!');
+    }
+  }
+
   console.log('Banco de dados pronto!');
 }
 
@@ -228,13 +264,133 @@ function mapRow(r, incluirFotos) {
   };
 }
 
+// ─── Auth / usuários ───────────────────────────────────────────────────────────
+function autenticar(papeis) {
+  return async (req, res, next) => {
+    const header = req.headers.authorization || '';
+    const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) return res.status(401).json({ erro: 'Não autenticado' });
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      const { rows } = await pool.query(
+        'SELECT id, nome, email, role, ativo FROM usuarios WHERE id = $1',
+        [payload.sub]
+      );
+      if (!rows.length || !rows[0].ativo)
+        return res.status(401).json({ erro: 'Usuário inválido ou inativo' });
+      req.usuario = rows[0];
+      if (papeis && papeis.length && !papeis.includes(rows[0].role))
+        return res.status(403).json({ erro: 'Sem permissão para esta operação' });
+      next();
+    } catch {
+      res.status(401).json({ erro: 'Token inválido ou expirado' });
+    }
+  };
+}
+const qualquerUsuario = autenticar([]);
+const somenteGestores = autenticar(['empresa', 'admin']);
+const somenteEmpresa  = autenticar(['empresa']);
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, senha } = req.body;
+  if (!email || !senha) return res.status(400).json({ erro: 'Email e senha obrigatórios' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM usuarios WHERE email = $1',
+      [String(email).toLowerCase().trim()]
+    );
+    const u = rows[0];
+    if (!u || !u.ativo) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    const ok = await bcrypt.compare(String(senha), u.senha_hash);
+    if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    await pool.query('UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = $1', [u.id]);
+    const token = jwt.sign({ sub: u.id, role: u.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, usuario: { id: u.id, nome: u.nome, email: u.email, role: u.role } });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+// Usuário atual
+app.get('/api/auth/me', qualquerUsuario, (req, res) => {
+  res.json({ usuario: req.usuario });
+});
+
+// Listar usuários (empresa)
+app.get('/api/auth/usuarios', somenteEmpresa, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, nome, email, role, ativo, criado_em, ultimo_acesso FROM usuarios ORDER BY criado_em'
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+// Criar usuário (empresa)
+app.post('/api/auth/usuarios', somenteEmpresa, async (req, res) => {
+  const { nome, email, senha, role } = req.body;
+  if (!nome || !email || !senha || !role)
+    return res.status(400).json({ erro: 'Campos obrigatórios: nome, email, senha, role' });
+  if (!['empresa', 'admin', 'coordenador'].includes(role))
+    return res.status(400).json({ erro: 'Role inválido' });
+  try {
+    const hash = await bcrypt.hash(String(senha), 12);
+    const { rows } = await pool.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, nome, email, role, ativo, criado_em`,
+      [uuidv4(), nome.trim(), String(email).toLowerCase().trim(), hash, role]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ erro: 'Email já cadastrado' });
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+// Editar usuário (empresa edita qualquer um; outros editam só a si mesmos)
+app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
+  const { id } = req.params;
+  const u = req.usuario;
+  if (u.role !== 'empresa' && u.id !== id)
+    return res.status(403).json({ erro: 'Sem permissão' });
+  const { nome, senha, role, ativo } = req.body;
+  try {
+    const campos = [], vals = [];
+    if (nome)  { vals.push(nome.trim()); campos.push(`nome = $${vals.length}`); }
+    if (senha) { vals.push(await bcrypt.hash(String(senha), 12)); campos.push(`senha_hash = $${vals.length}`); }
+    if (u.role === 'empresa') {
+      if (role  !== undefined) { vals.push(role);   campos.push(`role = $${vals.length}`); }
+      if (ativo !== undefined) { vals.push(!!ativo); campos.push(`ativo = $${vals.length}`); }
+    }
+    if (!campos.length) return res.status(400).json({ erro: 'Nada para atualizar' });
+    vals.push(id);
+    const { rows } = await pool.query(
+      `UPDATE usuarios SET ${campos.join(', ')} WHERE id = $${vals.length}
+       RETURNING id, nome, email, role, ativo`,
+      vals
+    );
+    if (!rows.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    res.json(rows[0]);
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+// Desativar usuário (empresa)
+app.delete('/api/auth/usuarios/:id', somenteEmpresa, async (req, res) => {
+  if (req.params.id === req.usuario.id)
+    return res.status(400).json({ erro: 'Não pode desativar a si mesmo' });
+  try {
+    await pool.query('UPDATE usuarios SET ativo = false WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
 app.get('/api/ping', async (req, res) => {
   try { await pool.query('SELECT 1'); res.json({ ok: true, mensagem: 'Conectado!' }); }
   catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
 // Inspeção do esquema real do banco (depuração de produção)
-app.get('/api/diagnostico', async (req, res) => {
+app.get('/api/diagnostico', somenteEmpresa, async (req, res) => {
   try {
     const colunas = await pool.query(`
       SELECT attname AS coluna, format_type(atttypid, atttypmod) AS tipo
@@ -247,14 +403,14 @@ app.get('/api/diagnostico', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
-app.get('/api/proximo-numero', async (req, res) => {
+app.get('/api/proximo-numero', qualquerUsuario, async (req, res) => {
   try {
     const ano = new Date().getFullYear();
     res.json({ numero: fmtNumero(ano, await gerarNumeroOS(pool, ano)) });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens', async (req, res) => {
+app.get('/api/ordens', qualquerUsuario, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
@@ -273,7 +429,7 @@ app.get('/api/ordens', async (req, res) => {
   } catch (e) { console.error('GET /api/ordens:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens/:id', async (req, res) => {
+app.get('/api/ordens/:id', qualquerUsuario, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
@@ -303,7 +459,7 @@ function valoresInsert(o, numero, criadoEm) {
   ];
 }
 
-app.post('/api/ordens', async (req, res) => {
+app.post('/api/ordens', somenteGestores, async (req, res) => {
   const client = await pool.connect();
   try {
     const o = req.body;
@@ -333,7 +489,7 @@ app.post('/api/ordens', async (req, res) => {
 });
 
 // Importação em lote (CSV processado no frontend)
-app.post('/api/ordens/importar', async (req, res) => {
+app.post('/api/ordens/importar', somenteGestores, async (req, res) => {
   const lista = req.body && req.body.ordens;
   if (!Array.isArray(lista) || !lista.length) {
     return res.status(400).json({ erro: 'Envie { ordens: [...] } com pelo menos 1 item' });
@@ -392,7 +548,7 @@ function validarData(v) {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-app.put('/api/ordens/:id', async (req, res) => {
+app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
@@ -426,7 +582,7 @@ app.put('/api/ordens/:id', async (req, res) => {
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.delete('/api/ordens/:id', async (req, res) => {
+app.delete('/api/ordens/:id', somenteGestores, async (req, res) => {
   try {
     await pool.query('DELETE FROM ordens_servico WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
@@ -553,7 +709,7 @@ async function sincronizarBuracos() {
 
 // Recebe o token, sincroniza o BigQuery → Neon e devolve o resultado.
 // O token é usado apenas para esta sincronização; os dados ficam no banco.
-app.post('/api/waze/token', async (req, res) => {
+app.post('/api/waze/token', qualquerUsuario, async (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
@@ -573,7 +729,7 @@ app.post('/api/waze/token', async (req, res) => {
 });
 
 // Retorna a configuração BigQuery atual (sem expor o token).
-app.get('/api/waze/config', (req, res) => {
+app.get('/api/waze/config', qualquerUsuario, (req, res) => {
   res.json({
     projeto:  BQ_PROJECT,
     dataset:  BQ_DATASET  || null,
@@ -583,8 +739,65 @@ app.get('/api/waze/config', (req, res) => {
   });
 });
 
+// Explora o BigQuery com um token para listar projetos → datasets → tabelas.
+// Útil para descobrir o ID correto da tabela quando o projeto não tem datasets visíveis.
+app.post('/api/waze/explorar', qualquerUsuario, async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ erro: 'Token obrigatório' });
+
+  function bqGet(path, tok) {
+    return new Promise((resolve, reject) => {
+      const req2 = https.request({
+        hostname: 'bigquery.googleapis.com',
+        path,
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${tok}` },
+      }, (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('Resposta inválida')); } });
+      });
+      req2.on('error', reject);
+      req2.end();
+    });
+  }
+
+  try {
+    const tk = String(token).trim();
+
+    // 1. Lista projetos
+    const projData = await bqGet('/bigquery/v2/projects?maxResults=50', tk);
+    const projetos = (projData.projects || []).map(p => p.id);
+
+    const resultado = [];
+    for (const proj of projetos) {
+      const dsData = await bqGet(`/bigquery/v2/projects/${proj}/datasets?all=true&maxResults=100`, tk);
+      const datasets = dsData.datasets || [];
+      const dsList = [];
+
+      for (const ds of datasets) {
+        const dsId = ds.datasetReference.datasetId;
+        if (dsId.startsWith('_')) continue; // ignora anônimos
+        const tbData = await bqGet(`/bigquery/v2/projects/${proj}/datasets/${dsId}/tables?maxResults=100`, tk);
+        const tabelas = (tbData.tables || []).map(t => ({
+          tabela:   t.tableReference.tableId,
+          tipo:     t.type,
+          linhas:   t.numRows ? parseInt(t.numRows).toLocaleString('pt-BR') : '?',
+          fullId:   `${proj}.${dsId}.${t.tableReference.tableId}`,
+        }));
+        dsList.push({ dataset: dsId, tabelas });
+      }
+      if (dsList.length) resultado.push({ projeto: proj, datasets: dsList });
+    }
+
+    res.json({ ok: true, resultado, projetos });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
 // Lê os buracos do banco (Neon) com os filtros — não depende do token.
-app.get('/api/waze/buracos', async (req, res) => {
+app.get('/api/waze/buracos', qualquerUsuario, async (req, res) => {
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
   const df  = validDate(req.query.dataFim);
