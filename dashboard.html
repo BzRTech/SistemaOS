@@ -328,7 +328,7 @@ function barras(contagens, total, classe) {
   return contagens.map(([nome, qtd]) => `
     <div class="barra-linha">
       <div class="barra-topo"><span>${esc(nome)}</span><span class="qtd">${qtd}</span></div>
-      <div class="barra-fundo"><div class="barra-fill ${classe||""}" style="width:${Math.max(3, Math.round(qtd/max*100))}%"></div></div>
+      <div class="barra-fundo"><div class="barra-fill ${classe||''}" style="width:${Math.max(3, Math.round(qtd/max*100))}%"></div></div>
     </div>`).join('') || '<div class="vazio">Sem dados.</div>';
 }
 
