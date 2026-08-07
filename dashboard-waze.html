@@ -29,15 +29,15 @@
   --vermelho-claro: #fdecea;
   --sombra: 0 2px 12px rgba(0,0,0,0.08);
   /* cores Waze */
-  --w1: #f5a623; /* 1–2 relatos */
-  --w2: #e07b1a; /* 3–5 relatos */
-  --w3: #d32f2f; /* 6–9 relatos */
+  --w1: #f5a623; /* 1-2 relatos */
+  --w2: #e07b1a; /* 3-5 relatos */
+  --w3: #d32f2f; /* 6-9 relatos */
   --w4: #7f0000; /* 10+ relatos */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--cinza-bg); color: var(--cinza-escuro); min-height: 100vh; }
 
-/* ── Topo ── */
+/* Topo */
 .topo {
   background: var(--primaria-escura); color: white;
   padding: 16px 28px;
@@ -54,7 +54,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .btn-nav:hover { background: rgba(255,255,255,0.24); }
 button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 
-/* ── Token banner ── */
+/* Token banner */
 .token-banner {
   background: #fff8e1; border-bottom: 2px solid #f5a623;
   padding: 14px 28px;
@@ -71,11 +71,11 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
   padding: 9px 18px; background: var(--laranja); color: white; border: none;
   border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
-.token-form button:hover { background: #c46b12; }
+.token-form button:hover { opacity: 0.88; }
 #tokenMsg { font-size: 12px; color: var(--verde); }
 #tokenMsg.erro { color: var(--vermelho); }
 
-/* ── Filtros ── */
+/* Filtros */
 .filtros-bar {
   background: white; border-bottom: 1px solid var(--cinza-borda);
   padding: 14px 28px;
@@ -101,11 +101,11 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 .btn-aplicar:hover { background: #c46b12; }
 .btn-aplicar:disabled { background: var(--cinza-borda); cursor: not-allowed; }
 
-/* ── Conteúdo ── */
+/* Conteudo */
 .conteudo { padding: 22px 28px 40px; max-width: 1400px; margin: 0 auto; }
 @media (max-width: 900px) { .conteudo { padding: 16px; } .topo, .filtros-bar { padding: 14px 16px; } }
 
-/* ── Cards ── */
+/* Cards */
 .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 22px; }
 @media (max-width: 1100px) { .cards { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 700px) { .cards { grid-template-columns: repeat(2, 1fr); } }
@@ -118,7 +118,7 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 .card-stat .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cinza-texto); margin-top: 4px; }
 .card-stat .sub-num { font-size: 12px; color: var(--cinza-texto); margin-top: 3px; }
 
-/* ── Painéis ── */
+/* Paineis */
 .paineis { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 900px) { .paineis { grid-template-columns: 1fr; } }
 .painel {
@@ -134,7 +134,7 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 .painel h2 .contador { font-weight: 400; color: var(--cinza-texto); font-size: 12px; }
 .painel-largo { grid-column: 1 / -1; }
 
-/* ── Mapa ── */
+/* Mapa */
 #mapa { height: clamp(360px, 60vh, 580px); border-radius: 12px; z-index: 1; }
 .mapa-vazio {
   height: clamp(360px, 60vh, 580px);
@@ -154,7 +154,7 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 .leaflet-popup-content b { color: var(--primaria-escura); }
 .leaflet-popup-content a { color: var(--azul); text-decoration: none; font-weight: 600; }
 
-/* ── Barras ── */
+/* Barras */
 .barra-linha { margin-bottom: 10px; }
 .barra-topo { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
 .barra-topo .qtd { font-weight: 700; color: var(--laranja); }
@@ -164,7 +164,7 @@ button.btn-nav { border: none; cursor: pointer; font-family: inherit; }
 .barra-fill.dia { background: var(--azul); }
 .barra-fill.bairro { background: var(--verde-medio); }
 
-/* ── Tabela ── */
+/* Tabela */
 .tabela-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
@@ -214,16 +214,18 @@ tr:hover td { background: #fafbfc; }
   </div>
 </header>
 
-<!-- Banner de sincronização (token usado só para puxar dados e gravar no banco) -->
+<!-- Banner de sincronização -->
 <div id="tokenBanner" class="token-banner" style="display:none">
   <div class="token-inner">
     <div>🔄 <strong>Atualizar dados do Waze.</strong> Cole um token para puxar as ocorrências mais recentes do BigQuery e gravá-las no banco. Gere com <code>gcloud auth print-access-token</code> (Cloud Shell). O token é usado só agora — os dados ficam salvos e o painel continua funcionando depois que ele expirar.</div>
     <div class="token-form">
       <input type="password" id="tokenInput" placeholder="ya29.a0AT3oNZ...">
       <button onclick="atualizarToken()">Sincronizar</button>
+      <button onclick="explorarBQ()" style="background:#1a73e8">🔍 Explorar tabelas</button>
       <button onclick="fecharTokenBanner()" style="background:#9aa0a6">Fechar</button>
     </div>
     <div id="tokenMsg"></div>
+    <div id="explorarResult" style="display:none;margin-top:12px;background:#1e1e1e;border-radius:6px;padding:12px;font-size:13px;max-height:320px;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -333,7 +335,6 @@ tr:hover td { background: #fafbfc; }
 </div>
 
 <script>
-// ── Utilitários ──────────────────────────────────────────────────────────────
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -352,7 +353,6 @@ function diasAtras(n) {
   return d.toISOString().split('T')[0];
 }
 
-// ── Bairros (atribuição offline por coordenada — mesma base do sistema) ───────
 const SEM_BAIRRO = 'Fora de João Pessoa';
 function bairroPorCoordenada(lat, lng) {
   const mapa = window.BAIRROS_JP;
@@ -370,14 +370,12 @@ function bairroPorCoordenada(lat, lng) {
   for (const b of mapa) {
     for (const anel of b.a) if (dentro(anel)) return b.n;
   }
-  return ''; // fora de João Pessoa (ex.: Cabedelo, Bayeux, Santa Rita)
+  return '';
 }
 
-// ── Defaults de filtro ───────────────────────────────────────────────────────
 document.getElementById('fDataInicio').value = diasAtras(7);
 document.getElementById('fDataFim').value    = hoje();
 
-// ── Token / Sincronização ─────────────────────────────────────────────────────
 async function atualizarToken() {
   const token = document.getElementById('tokenInput').value.trim();
   const msg   = document.getElementById('tokenMsg');
@@ -410,10 +408,6 @@ function mostrarTokenBanner() {
   verificarConfigBQ();
 }
 
-function fecharTokenBanner() {
-  document.getElementById('tokenBanner').style.display = 'none';
-}
-
 async function verificarConfigBQ() {
   try {
     const r = await fetch('/api/waze/config');
@@ -433,7 +427,52 @@ async function verificarConfigBQ() {
   } catch {}
 }
 
-// ── Mapa ─────────────────────────────────────────────────────────────────────
+function fecharTokenBanner() {
+  document.getElementById('tokenBanner').style.display = 'none';
+}
+
+async function explorarBQ() {
+  const token = document.getElementById('tokenInput').value.trim();
+  const msg = document.getElementById('tokenMsg');
+  const res = document.getElementById('explorarResult');
+  if (!token) { msg.textContent = 'Cole o token antes de explorar.'; msg.className = 'erro'; return; }
+  msg.textContent = '⏳ Explorando projetos BigQuery...';
+  msg.className = '';
+  res.style.display = 'none';
+  try {
+    const r = await fetch('/api/waze/explorar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.erro || 'Erro');
+    msg.textContent = `✅ Projetos encontrados: ${json.projetos.join(', ')}`;
+    msg.className = '';
+    if (!json.resultado.length) {
+      res.innerHTML = '<em style="color:#aaa">Nenhum dataset permanente encontrado nos projetos acessíveis.</em>';
+    } else {
+      let html = '';
+      for (const proj of json.resultado) {
+        html += `<div style="color:#8ab4f8;font-weight:bold;margin-bottom:4px">📁 ${esc(proj.projeto)}</div>`;
+        for (const ds of proj.datasets) {
+          html += `<div style="margin-left:12px;color:#81c995">📂 ${esc(ds.dataset)}</div>`;
+          for (const tb of ds.tabelas) {
+            html += `<div style="margin-left:24px;color:#e8eaed">` +
+              `📋 <strong>${esc(tb.tabela)}</strong> — ${esc(tb.tipo)} — ${esc(tb.linhas)} linhas<br>` +
+              `<code style="color:#fdd663;font-size:11px">${esc(tb.fullId)}</code></div>`;
+          }
+        }
+        html += '<br>';
+      }
+      res.innerHTML = html;
+    }
+    res.style.display = 'block';
+  } catch (e) {
+    msg.textContent = '❌ ' + e.message;
+    msg.className = 'erro';
+  }
+}
+
 let mapa = null, camada = null, primeiraVezMapa = true;
 
 function corRelato(r) {
@@ -457,7 +496,7 @@ function agregarPorCoords(dados) {
     m[key].totalRelatos += d.relatos;
     m[key].totalConf   += d.confirmacoes;
     if (d.data) m[key].datas.add(d.data);
-    if (d.rua)  m[key].rua = d.rua; // prefere rua não-vazia
+    if (d.rua)  m[key].rua = d.rua;
     if (d.bairro) m[key].bairro = d.bairro;
   }
   return Object.values(m).map(v => ({ ...v, diasCount: v.datas.size, datasArr: [...v.datas].sort() }));
@@ -496,7 +535,6 @@ function renderMapa(dados) {
     const r   = raioRelato(p.totalRelatos);
     const ultimaData = p.datasArr.at(-1) ? fmtData(p.datasArr.at(-1)) : '–';
     const primeiraData = p.datasArr[0] ? fmtData(p.datasArr[0]) : '–';
-    const ruaNome = p.rua || '<em>Rua não identificada</em>';
 
     L.circleMarker([p.lat, p.lon], {
       radius: r, color: cor, fillColor: cor, fillOpacity: 0.72, weight: 1.5,
@@ -524,7 +562,6 @@ function renderMapa(dados) {
   }
 }
 
-// ── Cards KPI ────────────────────────────────────────────────────────────────
 function renderCards(dados) {
   const pontos = agregarPorCoords(dados);
   const totalRelatos = dados.reduce((s, d) => s + d.relatos, 0);
@@ -548,7 +585,6 @@ function renderCards(dados) {
   document.getElementById('stHojeData').textContent  = hoje_relatos ? `${hoje_pontos} ponto(s)` : 'Sem dados para hoje';
 }
 
-// ── Gráficos de barras ───────────────────────────────────────────────────────
 function barras(itens, cls) {
   if (!itens.length) return '<div class="vazio">Sem dados.</div>';
   const max = itens[0][1];
@@ -598,7 +634,6 @@ function renderPorBairro(dados) {
   document.getElementById('porBairro').innerHTML = barras(top, 'bairro');
 }
 
-// ── Tabela ───────────────────────────────────────────────────────────────────
 let tabelaDados = [];
 let sortCol = 'relatos', sortAsc = false;
 
@@ -680,8 +715,7 @@ function ordenarPor(col) {
   renderTabelaOrdenada();
 }
 
-// ── Filtro de bairro (client-side) ────────────────────────────────────────────
-let dadosEnriquecidos = []; // todos os registros do período, já com bairro
+let dadosEnriquecidos = [];
 
 function popularSelectBairros() {
   const sel = document.getElementById('fBairro');
@@ -702,7 +736,6 @@ function popularSelectBairros() {
     opcoes.push(`<option value="__sem__">${SEM_BAIRRO} (${relatosPorBairro[SEM_BAIRRO]})</option>`);
   }
   sel.innerHTML = opcoes.join('');
-  // preserva a seleção atual se ainda existir
   sel.value = [...sel.options].some(o => o.value === atual) ? atual : '';
 }
 
@@ -713,18 +746,16 @@ function dadosFiltradosPorBairro() {
   return dadosEnriquecidos.filter(d => d.bairro === b);
 }
 
-// re-renderiza tudo a partir do cache (sem nova consulta ao BigQuery)
 function renderTudo() {
   const filtrados = dadosFiltradosPorBairro();
   renderCards(filtrados);
   renderMapa(filtrados);
   renderPorRua(filtrados);
   renderPorDia(filtrados);
-  renderPorBairro(dadosEnriquecidos); // ranking sempre considera todos os bairros
+  renderPorBairro(dadosEnriquecidos);
   renderTabela(filtrados);
 }
 
-// ── Carregamento principal ───────────────────────────────────────────────────
 function setCarregando(sim) {
   const btn = document.getElementById('btnAplicar');
   btn.disabled = sim;
@@ -762,12 +793,10 @@ async function carregar() {
     document.getElementById('erro').innerHTML = '';
 
     const { dados } = json;
-    // atribui o bairro de cada ponto pela coordenada (offline, base do sistema)
     dadosEnriquecidos = dados.map(d => ({ ...d, bairro: bairroPorCoordenada(d.lat, d.lon) }));
     popularSelectBairros();
     renderTudo();
 
-    // mostra quando o banco foi sincronizado pela última vez
     if (json.sincronizadoEm) {
       const dt = new Date(json.sincronizadoEm);
       document.getElementById('atualizadoEm').textContent =
@@ -776,7 +805,6 @@ async function carregar() {
       document.getElementById('atualizadoEm').textContent = 'Banco ainda não sincronizado';
     }
 
-    // banco vazio → orienta o usuário a fazer a primeira sincronização
     if (json.bancoVazio) {
       document.getElementById('erro').innerHTML =
         `<div class="erro-box" style="background:#fff8e1;color:#7a5200">📭 Nenhum dado no banco ainda. Clique em <strong>🔄 Atualizar dados</strong> e cole um token para a primeira sincronização.</div>`;
@@ -791,7 +819,6 @@ async function carregar() {
   }
 }
 
-// Inicia ao carregar a página
 carregar();
 </script>
 </body>

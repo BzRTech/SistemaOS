@@ -583,6 +583,63 @@ app.get('/api/waze/config', (req, res) => {
   });
 });
 
+// Explora o BigQuery com um token para listar projetos → datasets → tabelas.
+// Útil para descobrir o ID correto da tabela quando o projeto não tem datasets visíveis.
+app.post('/api/waze/explorar', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ erro: 'Token obrigatório' });
+
+  function bqGet(path, tok) {
+    return new Promise((resolve, reject) => {
+      const req2 = https.request({
+        hostname: 'bigquery.googleapis.com',
+        path,
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${tok}` },
+      }, (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('Resposta inválida')); } });
+      });
+      req2.on('error', reject);
+      req2.end();
+    });
+  }
+
+  try {
+    const tk = String(token).trim();
+
+    // 1. Lista projetos
+    const projData = await bqGet('/bigquery/v2/projects?maxResults=50', tk);
+    const projetos = (projData.projects || []).map(p => p.id);
+
+    const resultado = [];
+    for (const proj of projetos) {
+      const dsData = await bqGet(`/bigquery/v2/projects/${proj}/datasets?all=true&maxResults=100`, tk);
+      const datasets = dsData.datasets || [];
+      const dsList = [];
+
+      for (const ds of datasets) {
+        const dsId = ds.datasetReference.datasetId;
+        if (dsId.startsWith('_')) continue; // ignora anônimos
+        const tbData = await bqGet(`/bigquery/v2/projects/${proj}/datasets/${dsId}/tables?maxResults=100`, tk);
+        const tabelas = (tbData.tables || []).map(t => ({
+          tabela:   t.tableReference.tableId,
+          tipo:     t.type,
+          linhas:   t.numRows ? parseInt(t.numRows).toLocaleString('pt-BR') : '?',
+          fullId:   `${proj}.${dsId}.${t.tableReference.tableId}`,
+        }));
+        dsList.push({ dataset: dsId, tabelas });
+      }
+      if (dsList.length) resultado.push({ projeto: proj, datasets: dsList });
+    }
+
+    res.json({ ok: true, resultado, projetos });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
 // Lê os buracos do banco (Neon) com os filtros — não depende do token.
 app.get('/api/waze/buracos', async (req, res) => {
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
