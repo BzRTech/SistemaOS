@@ -438,6 +438,25 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 }
 </style>
 </head>
+<script>
+(function() {
+  const tk = localStorage.getItem('os_token');
+  if (!tk) { window.location.replace('/login.html'); return; }
+  const _f = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+      opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + localStorage.getItem('os_token') });
+    }
+    return _f.call(this, url, opts).then(r => {
+      if (r.status === 401) { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+      return r;
+    });
+  };
+})();
+function logout() { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario')) || {}; } catch { return {}; } }
+</script>
 <body>
 
 <!-- HEADER -->
@@ -446,13 +465,15 @@ textarea.form-input { min-height: 80px; resize: vertical; }
     <div class="header-logo">🏗️</div>
     <div>
       <div class="header-title">Gestão de O.S.</div>
-      <div class="header-sub">Secretaria de Infraestrutura</div>
+      <div class="header-sub" id="usuarioSub">Secretaria de Infraestrutura</div>
     </div>
   </div>
   <div style="display:flex;gap:8px">
     <a class="btn-config" href="/dashboard.html" target="_blank" title="Dashboard OS" style="text-decoration:none">📊</a>
     <a class="btn-config" href="/dashboard-waze.html" target="_blank" title="Buracos — Waze" style="text-decoration:none">🔴</a>
     <button class="btn-config" onclick="toggleConfig()" title="Configurações">⚙️</button>
+    <button class="btn-config" id="btnUsuarios" onclick="abrirGerenciarUsuarios()" title="Gerenciar usuários" style="display:none">👥</button>
+    <button class="btn-config" onclick="logout()" title="Sair">🚪</button>
   </div>
 </header>
 
@@ -740,7 +761,27 @@ window.addEventListener('DOMContentLoaded', () => {
   carregarOS();
   buscarProximoNumero();
   testarConexaoSilencioso();
+  iniciarSessao();
 });
+
+async function iniciarSessao() {
+  try {
+    const r = await fetch('/api/auth/me');
+    if (!r.ok) return;
+    const { usuario } = await r.json();
+    localStorage.setItem('os_usuario', JSON.stringify(usuario));
+    const roles = { empresa: 'Empresa', admin: 'Admin', coordenador: 'Coordenador' };
+    document.getElementById('usuarioSub').textContent = `${usuario.nome} · ${roles[usuario.role] || usuario.role}`;
+    if (usuario.role === 'empresa') {
+      document.getElementById('btnUsuarios').style.display = 'flex';
+    }
+    // Coordenador: oculta aba Nova OS e botão importar
+    if (usuario.role === 'coordenador') {
+      const tabNova = document.getElementById('tab-nova');
+      if (tabNova) tabNova.style.display = 'none';
+    }
+  } catch {}
+}
 
 // ── NAVEGAÇÃO ─────────────────────────────────────────────────────────────────
 function showSection(id) {
@@ -2160,6 +2201,99 @@ function toast(msg, dur = 2200) {
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), dur);
+}
+
+// ── GERENCIAR USUÁRIOS ────────────────────────────────────────────────────────
+const ROLE_LABEL = { empresa: 'Empresa', admin: 'Admin', coordenador: 'Coordenador' };
+
+async function abrirGerenciarUsuarios() {
+  let modal = document.getElementById('modalUsuarios');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modalUsuarios';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:24px 20px 36px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <h2 style="font-size:18px;font-weight:700">👥 Usuários</h2>
+          <button onclick="document.getElementById('modalUsuarios').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#666">✕</button>
+        </div>
+        <div id="listaUsuarios" style="margin-bottom:20px">Carregando...</div>
+        <details style="margin-top:16px">
+          <summary style="cursor:pointer;font-weight:600;font-size:14px;color:#c8102e;margin-bottom:12px">➕ Novo usuário</summary>
+          <div style="display:grid;gap:10px;margin-top:12px">
+            <input id="uNome"  type="text"     placeholder="Nome completo"  style="padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px">
+            <input id="uEmail" type="email"    placeholder="E-mail"          style="padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px">
+            <input id="uSenha" type="password" placeholder="Senha"           style="padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px">
+            <select id="uRole" style="padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px">
+              <option value="coordenador">Coordenador</option>
+              <option value="admin">Admin</option>
+              <option value="empresa">Empresa</option>
+            </select>
+            <button onclick="criarUsuario()" style="padding:11px;background:#c8102e;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer">Criar</button>
+            <div id="uMsg" style="font-size:13px;color:#b91c1c;display:none"></div>
+          </div>
+        </details>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  }
+  modal.style.display = 'flex';
+  await carregarListaUsuarios();
+}
+
+async function carregarListaUsuarios() {
+  const el = document.getElementById('listaUsuarios');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/auth/usuarios');
+    const lista = await r.json();
+    if (!r.ok) { el.textContent = lista.erro; return; }
+    el.innerHTML = lista.map(u => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:${u.ativo?'#f9fafb':'#fef2f2'};border-radius:8px;margin-bottom:6px;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:14px;color:${u.ativo?'#1d1d1f':'#9ca3af'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nome)}</div>
+          <div style="font-size:12px;color:#6b7280">${esc(u.email)} · <span style="font-weight:600;color:#c8102e">${ROLE_LABEL[u.role]||u.role}</span></div>
+        </div>
+        <button onclick="toggleUsuario('${u.id}',${!u.ativo})" style="flex-shrink:0;padding:5px 10px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;background:${u.ativo?'#fee2e2':'#dcfce7'};color:${u.ativo?'#b91c1c':'#166534'}">
+          ${u.ativo ? 'Desativar' : 'Ativar'}
+        </button>
+      </div>`).join('');
+  } catch (e) { el.textContent = 'Erro: ' + e.message; }
+}
+
+async function criarUsuario() {
+  const nome  = document.getElementById('uNome').value.trim();
+  const email = document.getElementById('uEmail').value.trim();
+  const senha = document.getElementById('uSenha').value;
+  const role  = document.getElementById('uRole').value;
+  const msg   = document.getElementById('uMsg');
+  msg.style.display = 'none';
+  if (!nome || !email || !senha) { msg.textContent = 'Preencha todos os campos.'; msg.style.display = 'block'; return; }
+  try {
+    const r = await fetch('/api/auth/usuarios', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, email, senha, role }),
+    });
+    const json = await r.json();
+    if (!r.ok) { msg.textContent = json.erro; msg.style.display = 'block'; return; }
+    document.getElementById('uNome').value = '';
+    document.getElementById('uEmail').value = '';
+    document.getElementById('uSenha').value = '';
+    toast('Usuário criado!');
+    await carregarListaUsuarios();
+  } catch (e) { msg.textContent = e.message; msg.style.display = 'block'; }
+}
+
+async function toggleUsuario(id, ativo) {
+  try {
+    const r = await fetch(`/api/auth/usuarios/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativo }),
+    });
+    if (!r.ok) { const j = await r.json(); toast(j.erro); return; }
+    await carregarListaUsuarios();
+  } catch (e) { toast(e.message); }
 }
 </script>
 </body>
