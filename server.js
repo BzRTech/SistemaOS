@@ -25,6 +25,8 @@ const pool = new Pool({
   ssl: precisaSSL ? { rejectUnauthorized: false } : false,
 });
 
+const JWT_SECRET = process.env.JWT_SECRET || 'mude-isso-em-producao-defina-JWT_SECRET';
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
@@ -747,7 +749,7 @@ app.post('/api/waze/token', autenticar, exigirPerfil('admin'), async (req, res) 
 });
 
 // Retorna a configuração BigQuery atual (sem expor o token).
-app.get('/api/waze/config', (req, res) => {
+app.get('/api/waze/config', qualquerUsuario, (req, res) => {
   res.json({
     projeto:  BQ_PROJECT,
     dataset:  BQ_DATASET  || null,

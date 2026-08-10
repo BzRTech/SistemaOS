@@ -144,12 +144,30 @@ tr:hover td { background: #fafbfc; }
 .leaflet-popup-content a { color: var(--azul); text-decoration: none; font-weight: 600; }
 </style>
 </head>
+<script>
+(function() {
+  const tk = localStorage.getItem('os_token');
+  if (!tk) { window.location.replace('/login.html'); return; }
+  const _f = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (typeof url === 'string' && url.startsWith('/api/')) {
+      opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + localStorage.getItem('os_token') });
+    }
+    return _f.call(this, url, opts).then(r => {
+      if (r.status === 401) { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+      return r;
+    });
+  };
+})();
+function logout() { localStorage.removeItem('os_token'); localStorage.removeItem('os_usuario'); window.location.replace('/login.html'); }
+</script>
 <body>
 
 <header class="topo">
   <div>
     <h1>📊 Dashboard — Gestão de O.S.</h1>
-    <div class="sub">Secretaria de Infraestrutura</div>
+    <div class="sub" id="usuarioSub">Secretaria de Infraestrutura</div>
   </div>
   <div class="topo-acoes">
     <span class="atualizado" id="atualizadoEm"></span>
@@ -407,6 +425,14 @@ async function carregar() {
 
 carregar();
 setInterval(carregar, 60000); // atualiza a cada minuto
+
+// Mostra nome do usuário logado
+fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
+  if (!data) return;
+  const roles = { empresa: 'Empresa', admin: 'Admin', coordenador: 'Coordenador' };
+  const el = document.getElementById('usuarioSub');
+  if (el) el.textContent = `${data.usuario.nome} · ${roles[data.usuario.role] || data.usuario.role}`;
+}).catch(() => {});
 </script>
 </body>
 </html>
