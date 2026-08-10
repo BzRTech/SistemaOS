@@ -4,6 +4,11 @@ const cors = require('cors');
 const https = require('https');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'sistema-os-dev-secret-altere-em-producao';
+const JWT_EXPIRY = '8h';
 
 const app = express();
 
@@ -164,6 +169,35 @@ async function iniciarBanco() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_waze_data ON waze_buracos (data DESC)`);
 
+  // Tabela de usuários do sistema
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id            TEXT PRIMARY KEY,
+      nome          TEXT NOT NULL,
+      email         TEXT UNIQUE NOT NULL,
+      senha_hash    TEXT NOT NULL,
+      perfil        TEXT NOT NULL DEFAULT 'operador',
+      ativo         BOOLEAN NOT NULL DEFAULT true,
+      criado_em     TIMESTAMPTZ DEFAULT NOW(),
+      atualizado_em TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Cria o admin padrão se não houver nenhum usuário cadastrado
+  const { rows: contagemUsuarios } = await pool.query('SELECT COUNT(*)::int AS n FROM usuarios');
+  if (contagemUsuarios[0].n === 0) {
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@infraestrutura.pmjp.pb.gov.br';
+    const adminSenha = process.env.ADMIN_SENHA || 'Infra@2025';
+    const adminNome  = process.env.ADMIN_NOME  || 'Administrador';
+    const hash = await bcrypt.hash(adminSenha, 12);
+    await pool.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, perfil) VALUES ($1, $2, $3, $4, 'admin')`,
+      [uuidv4(), adminNome, adminEmail, hash]
+    );
+    console.log(`Usuário admin criado: ${adminEmail}`);
+    console.log('ATENÇÃO: altere a senha padrão via ADMIN_SENHA ou pelo painel de usuários.');
+  }
+
   console.log('Banco de dados pronto!');
 }
 
@@ -228,13 +262,153 @@ function mapRow(r, incluirFotos) {
   };
 }
 
+// ─── Autenticação ─────────────────────────────────────────────────────────────
+
+function autenticar(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ erro: 'Autenticação necessária' });
+  }
+  try {
+    req.usuario = jwt.verify(auth.slice(7), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ erro: 'Token inválido ou expirado. Faça login novamente.' });
+  }
+}
+
+function exigirPerfil(...perfis) {
+  return (req, res, next) => {
+    if (!req.usuario || !perfis.includes(req.usuario.perfil)) {
+      return res.status(403).json({ erro: 'Permissão insuficiente para esta ação' });
+    }
+    next();
+  };
+}
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, senha } = req.body || {};
+  if (!email || !senha) {
+    return res.status(400).json({ erro: 'E-mail e senha são obrigatórios' });
+  }
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM usuarios WHERE email = $1',
+      [String(email).toLowerCase().trim()]
+    );
+    if (!rows.length) {
+      return res.status(401).json({ erro: 'E-mail ou senha incorretos' });
+    }
+    const user = rows[0];
+    if (!user.ativo) {
+      return res.status(401).json({ erro: 'Conta desativada. Contate o administrador.' });
+    }
+    const senhaCorreta = await bcrypt.compare(String(senha), user.senha_hash);
+    if (!senhaCorreta) {
+      return res.status(401).json({ erro: 'E-mail ou senha incorretos' });
+    }
+    const payload = { id: user.id, nome: user.nome, email: user.email, perfil: user.perfil };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+    res.json({ ok: true, token, usuario: payload });
+  } catch (e) {
+    console.error('POST /api/auth/login:', e.message);
+    res.status(500).json({ erro: 'Erro interno do servidor' });
+  }
+});
+
+app.get('/api/auth/me', autenticar, (req, res) => {
+  res.json({ ok: true, usuario: req.usuario });
+});
+
+// ─── Gestão de usuários (somente admin) ────────────────────────────────────────
+
+app.get('/api/usuarios', autenticar, exigirPerfil('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, nome, email, perfil, ativo, criado_em FROM usuarios ORDER BY criado_em'
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.post('/api/usuarios', autenticar, exigirPerfil('admin'), async (req, res) => {
+  const { nome, email, senha, perfil } = req.body || {};
+  if (!nome || !email || !senha) {
+    return res.status(400).json({ erro: 'Nome, e-mail e senha são obrigatórios' });
+  }
+  const perfis = ['admin', 'operador', 'visualizador'];
+  const perfilFinal = perfis.includes(perfil) ? perfil : 'operador';
+  try {
+    const hash = await bcrypt.hash(String(senha), 12);
+    const { rows } = await pool.query(
+      `INSERT INTO usuarios (id, nome, email, senha_hash, perfil)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, nome, email, perfil, ativo, criado_em`,
+      [uuidv4(), String(nome).trim(), String(email).toLowerCase().trim(), hash, perfilFinal]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ erro: 'E-mail já cadastrado' });
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.put('/api/usuarios/:id', autenticar, exigirPerfil('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { nome, email, senha, perfil, ativo } = req.body || {};
+  try {
+    const { rows: cur } = await pool.query('SELECT * FROM usuarios WHERE id = $1', [id]);
+    if (!cur.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
+
+    const senhaHash = senha ? await bcrypt.hash(String(senha), 12) : cur[0].senha_hash;
+    const perfis = ['admin', 'operador', 'visualizador'];
+    const perfilFinal = perfis.includes(perfil) ? perfil : cur[0].perfil;
+
+    const { rows } = await pool.query(
+      `UPDATE usuarios SET nome=$1, email=$2, senha_hash=$3, perfil=$4, ativo=$5, atualizado_em=NOW()
+       WHERE id=$6
+       RETURNING id, nome, email, perfil, ativo, criado_em`,
+      [
+        nome ? String(nome).trim() : cur[0].nome,
+        email ? String(email).toLowerCase().trim() : cur[0].email,
+        senhaHash,
+        perfilFinal,
+        ativo !== undefined ? Boolean(ativo) : cur[0].ativo,
+        id,
+      ]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ erro: 'E-mail já cadastrado' });
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+app.delete('/api/usuarios/:id', autenticar, exigirPerfil('admin'), async (req, res) => {
+  const { id } = req.params;
+  if (id === req.usuario.id) {
+    return res.status(400).json({ erro: 'Você não pode excluir sua própria conta' });
+  }
+  try {
+    const result = await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    if (!result.rowCount) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+// ─── Rotas públicas e protegidas ──────────────────────────────────────────────
+
 app.get('/api/ping', async (req, res) => {
   try { await pool.query('SELECT 1'); res.json({ ok: true, mensagem: 'Conectado!' }); }
   catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
 // Inspeção do esquema real do banco (depuração de produção)
-app.get('/api/diagnostico', async (req, res) => {
+app.get('/api/diagnostico', autenticar, exigirPerfil('admin'), async (req, res) => {
   try {
     const colunas = await pool.query(`
       SELECT attname AS coluna, format_type(atttypid, atttypmod) AS tipo
@@ -247,14 +421,14 @@ app.get('/api/diagnostico', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, erro: e.message }); }
 });
 
-app.get('/api/proximo-numero', async (req, res) => {
+app.get('/api/proximo-numero', autenticar, async (req, res) => {
   try {
     const ano = new Date().getFullYear();
     res.json({ numero: fmtNumero(ano, await gerarNumeroOS(pool, ano)) });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens', async (req, res) => {
+app.get('/api/ordens', autenticar, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
@@ -273,7 +447,7 @@ app.get('/api/ordens', async (req, res) => {
   } catch (e) { console.error('GET /api/ordens:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.get('/api/ordens/:id', async (req, res) => {
+app.get('/api/ordens/:id', autenticar, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
@@ -303,7 +477,7 @@ function valoresInsert(o, numero, criadoEm) {
   ];
 }
 
-app.post('/api/ordens', async (req, res) => {
+app.post('/api/ordens', autenticar, exigirPerfil('admin', 'operador'), async (req, res) => {
   const client = await pool.connect();
   try {
     const o = req.body;
@@ -333,7 +507,7 @@ app.post('/api/ordens', async (req, res) => {
 });
 
 // Importação em lote (CSV processado no frontend)
-app.post('/api/ordens/importar', async (req, res) => {
+app.post('/api/ordens/importar', autenticar, exigirPerfil('admin', 'operador'), async (req, res) => {
   const lista = req.body && req.body.ordens;
   if (!Array.isArray(lista) || !lista.length) {
     return res.status(400).json({ erro: 'Envie { ordens: [...] } com pelo menos 1 item' });
@@ -392,7 +566,7 @@ function validarData(v) {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-app.put('/api/ordens/:id', async (req, res) => {
+app.put('/api/ordens/:id', autenticar, exigirPerfil('admin', 'operador'), async (req, res) => {
   try {
     const { id } = req.params;
     const o = req.body;
@@ -426,7 +600,7 @@ app.put('/api/ordens/:id', async (req, res) => {
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.delete('/api/ordens/:id', async (req, res) => {
+app.delete('/api/ordens/:id', autenticar, exigirPerfil('admin', 'operador'), async (req, res) => {
   try {
     await pool.query('DELETE FROM ordens_servico WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
@@ -553,7 +727,7 @@ async function sincronizarBuracos() {
 
 // Recebe o token, sincroniza o BigQuery → Neon e devolve o resultado.
 // O token é usado apenas para esta sincronização; os dados ficam no banco.
-app.post('/api/waze/token', async (req, res) => {
+app.post('/api/waze/token', autenticar, exigirPerfil('admin'), async (req, res) => {
   const { token } = req.body;
   if (!token || !String(token).trim())
     return res.status(400).json({ erro: 'Token obrigatório' });
@@ -585,7 +759,7 @@ app.get('/api/waze/config', (req, res) => {
 
 // Explora o BigQuery com um token para listar projetos → datasets → tabelas.
 // Útil para descobrir o ID correto da tabela quando o projeto não tem datasets visíveis.
-app.post('/api/waze/explorar', async (req, res) => {
+app.post('/api/waze/explorar', autenticar, exigirPerfil('admin'), async (req, res) => {
   const { token } = req.body;
   if (!token) return res.status(400).json({ erro: 'Token obrigatório' });
 
@@ -641,7 +815,7 @@ app.post('/api/waze/explorar', async (req, res) => {
 });
 
 // Lê os buracos do banco (Neon) com os filtros — não depende do token.
-app.get('/api/waze/buracos', async (req, res) => {
+app.get('/api/waze/buracos', autenticar, async (req, res) => {
   const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
   const di  = validDate(req.query.dataInicio);
   const df  = validDate(req.query.dataFim);

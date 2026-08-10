@@ -154,6 +154,7 @@ tr:hover td { background: #fafbfc; }
   <div class="topo-acoes">
     <span class="atualizado" id="atualizadoEm"></span>
     <a class="btn-voltar" href="/">← Sistema</a>
+    <button onclick="fazerLogout()" style="background:rgba(255,255,255,0.14);color:white;border:none;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer">🚪 Sair</button>
   </div>
 </header>
 
@@ -368,9 +369,28 @@ function render(ordens) {
     </table>` : '<div class="vazio">Nenhuma O.S. cadastrada ainda.</div>';
 }
 
+function fazerLogout() {
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_usuario');
+  window.location.replace('/login.html');
+}
+
+(function verificarAuth() {
+  if (!localStorage.getItem('os_token')) window.location.replace('/login.html');
+})();
+
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const token = localStorage.getItem('os_token') || '';
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) { fazerLogout(); return r; }
+  return r;
+}
+
 async function carregar() {
   try {
-    const r = await fetch('/api/ordens');
+    const r = await apiFetch('/api/ordens');
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.erro || `Erro ${r.status}`);

@@ -211,6 +211,7 @@ tr:hover td { background: #fafbfc; }
     <button class="btn-nav" onclick="mostrarTokenBanner()" title="Sincronizar com o Waze">🔄 Atualizar dados</button>
     <a class="btn-nav" href="/dashboard.html">📊 Dashboard OS</a>
     <a class="btn-nav" href="/">← Sistema</a>
+    <button onclick="fazerLogout()" class="btn-nav">🚪 Sair</button>
   </div>
 </header>
 
@@ -335,6 +336,26 @@ tr:hover td { background: #fafbfc; }
 </div>
 
 <script>
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function fazerLogout() {
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_usuario');
+  window.location.replace('/login.html');
+}
+(function verificarAuth() {
+  if (!localStorage.getItem('os_token')) window.location.replace('/login.html');
+})();
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const token = localStorage.getItem('os_token') || '';
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) { fazerLogout(); return r; }
+  return r;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -383,8 +404,8 @@ async function atualizarToken() {
   msg.textContent = '⏳ Sincronizando dados do Waze... (pode levar alguns segundos)';
   msg.className = '';
   try {
-    const r = await fetch('/api/waze/token', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await apiFetch('/api/waze/token', {
+      method: 'POST',
       body: JSON.stringify({ token }),
     });
     const json = await r.json();
@@ -410,7 +431,7 @@ function mostrarTokenBanner() {
 
 async function verificarConfigBQ() {
   try {
-    const r = await fetch('/api/waze/config');
+    const r = await apiFetch('/api/waze/config');
     const cfg = await r.json();
     const msg = document.getElementById('tokenMsg');
     if (!cfg.configurado) {
@@ -440,8 +461,8 @@ async function explorarBQ() {
   msg.className = '';
   res.style.display = 'none';
   try {
-    const r = await fetch('/api/waze/explorar', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await apiFetch('/api/waze/explorar', {
+      method: 'POST',
       body: JSON.stringify({ token }),
     });
     const json = await r.json();
@@ -785,7 +806,7 @@ async function carregar() {
   params.set('minRelatos', mr);
 
   try {
-    const r = await fetch('/api/waze/buracos?' + params.toString());
+    const r = await apiFetch('/api/waze/buracos?' + params.toString());
     const json = await r.json();
 
     if (!r.ok) throw new Error(json.erro || `Erro HTTP ${r.status}`);

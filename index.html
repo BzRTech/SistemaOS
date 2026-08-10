@@ -449,10 +449,10 @@ textarea.form-input { min-height: 80px; resize: vertical; }
       <div class="header-sub">Secretaria de Infraestrutura</div>
     </div>
   </div>
-  <div style="display:flex;gap:8px">
+  <div style="display:flex;gap:8px;align-items:center">
     <a class="btn-config" href="/dashboard.html" target="_blank" title="Dashboard OS" style="text-decoration:none">📊</a>
     <a class="btn-config" href="/dashboard-waze.html" target="_blank" title="Buracos — Waze" style="text-decoration:none">🔴</a>
-    <button class="btn-config" onclick="toggleConfig()" title="Configurações">⚙️</button>
+    <button class="btn-config" onclick="toggleConfig()" id="btnUsuarioHeader" title="Usuário / Configurações" style="font-size:14px;font-weight:700;letter-spacing:0.5px">👤</button>
   </div>
 </header>
 
@@ -699,7 +699,22 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 <div class="config-panel" id="configPanel" onclick="closeConfigBg(event)">
   <div class="config-sheet">
     <div class="config-handle"></div>
-    <div class="config-title">⚙️ Configurações</div>
+    <div class="config-title">👤 Usuário</div>
+
+    <div style="background:var(--primaria-clara);border-radius:var(--radius-sm);padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;color:var(--cinza-texto);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Sessão ativa</div>
+      <div style="font-size:15px;font-weight:700;color:var(--cinza-escuro)" id="configNomeUsuario">–</div>
+      <div style="font-size:12px;color:var(--cinza-texto);margin-top:2px" id="configEmailUsuario"></div>
+      <div style="margin-top:6px">
+        <span id="configPerfilBadge" style="font-size:10px;font-weight:700;text-transform:uppercase;background:var(--primaria);color:white;padding:2px 10px;border-radius:20px;letter-spacing:0.5px"></span>
+      </div>
+    </div>
+
+    <button class="btn btn-danger" onclick="fazerLogout()" style="margin-bottom:20px">
+      🚪 Sair do sistema
+    </button>
+
+    <div class="config-title" style="font-size:14px;margin-top:4px">⚙️ Diagnóstico</div>
     <div id="dbStatus" class="db-status disconnected">
       <span class="db-dot"></span> Verificando conexão...
     </div>
@@ -716,6 +731,34 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 
 <script src="bairros-jp.js"></script>
 <script>
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+(function verificarAuth() {
+  if (!localStorage.getItem('os_token')) {
+    window.location.replace('/login.html');
+    throw new Error('sem token');
+  }
+})();
+
+function getToken() { return localStorage.getItem('os_token') || ''; }
+function getUsuario() {
+  try { return JSON.parse(localStorage.getItem('os_usuario') || '{}'); } catch { return {}; }
+}
+function fazerLogout() {
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_usuario');
+  window.location.replace('/login.html');
+}
+
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  headers['Authorization'] = 'Bearer ' + getToken();
+  if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) { fazerLogout(); return r; }
+  return r;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // escapa texto para uso seguro em HTML
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
@@ -737,6 +780,13 @@ const S = {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  // Exibe info do usuário logado no painel de configuração
+  const u = getUsuario();
+  if (u.nome) document.getElementById('configNomeUsuario').textContent = u.nome;
+  if (u.email) document.getElementById('configEmailUsuario').textContent = u.email;
+  const perfilLabel = { admin: 'Admin', operador: 'Operador', visualizador: 'Visualizador' };
+  if (u.perfil) document.getElementById('configPerfilBadge').textContent = perfilLabel[u.perfil] || u.perfil;
+
   carregarOS();
   buscarProximoNumero();
   testarConexaoSilencioso();
@@ -756,7 +806,7 @@ function showSection(id) {
 // ── NÚMERO OS ─────────────────────────────────────────────────────────────────
 async function buscarProximoNumero() {
   try {
-    const r = await fetch('/api/proximo-numero');
+    const r = await apiFetch('/api/proximo-numero');
     if (r.ok) {
       const d = await r.json();
       document.getElementById('novaNumero').value = d.numero;
@@ -769,7 +819,7 @@ async function carregarOS() {
   const container = document.getElementById('listaOS');
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Carregando...</p></div>';
   try {
-    const r = await fetch('/api/ordens');
+    const r = await apiFetch('/api/ordens');
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.erro || `Erro ${r.status}`);
@@ -792,7 +842,7 @@ async function carregarOS() {
 
 async function carregarOSCompleta(id) {
   try {
-    const r = await fetch(`/api/ordens/${id}`);
+    const r = await apiFetch(`/api/ordens/${id}`);
     if (!r.ok) throw new Error();
     return await r.json();
   } catch {
@@ -1066,9 +1116,8 @@ async function salvarNovaOS() {
   };
 
   try {
-    const r = await fetch('/api/ordens', {
+    const r = await apiFetch('/api/ordens', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(os),
     });
     const data = await r.json();
@@ -1354,9 +1403,8 @@ async function adicionarFotoNaOS(input, tipo) {
 
 async function atualizarOS(id, body) {
   try {
-    const r = await fetch(`/api/ordens/${id}`, {
+    const r = await apiFetch(`/api/ordens/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error();
@@ -1377,7 +1425,7 @@ async function excluirOS() {
   const id = S.osAberta?.id;
   if (!id) return;
   try {
-    await fetch(`/api/ordens/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/ordens/${id}`, { method: 'DELETE' });
   } catch {}
   S.ordens = S.ordens.filter(o => o.id !== id);
   salvarLocal();
@@ -2050,9 +2098,8 @@ async function confirmarImportCSV() {
     let importadas = 0, ignoradas = 0;
     for (let i = 0; i < total; i += LOTE) {
       if (total > LOTE) btn.textContent = `⏳ Importando... (${Math.min(i + LOTE, total)}/${total})`;
-      const r = await fetch('/api/ordens/importar', {
+      const r = await apiFetch('/api/ordens/importar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ordens: csvOrdensParaImportar.slice(i, i + LOTE) }),
       });
       const data = await r.json();
