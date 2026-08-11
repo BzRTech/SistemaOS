@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuários | Sistema de O.S. — Secretaria de Infraestrutura</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --primaria: #c8102e;
+  --primaria-escura: #7f0a1c;
+  --primaria-clara: #fbe9ec;
+  --cinza-bg: #f4f5f7;
+  --cinza-borda: #e0e4e8;
+  --cinza-texto: #5a6473;
+  --cinza-escuro: #1e2532;
+  --verde: #166534;
+  --verde-claro: #dcfce7;
+  --vermelho: #b91c1c;
+  --vermelho-claro: #fee2e2;
+  --azul: #1d4ed8;
+  --azul-claro: #e0e7ff;
+  --roxo: #7c3aed;
+  --roxo-claro: #ede9fe;
+  --laranja: #c2410c;
+  --laranja-claro: #fff7ed;
+  --sombra: 0 2px 12px rgba(0,0,0,0.08);
+  --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--cinza-bg);
+  color: var(--cinza-escuro);
+  min-height: 100vh;
+  padding-bottom: 40px;
+}
+
+header {
+  background: var(--primaria-escura);
+  color: white;
+  padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 10;
+}
+header .voltar {
+  background: rgba(255,255,255,0.15); border: none; color: white;
+  width: 34px; height: 34px; border-radius: 9px;
+  font-size: 18px; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+}
+header .titulo { font-size: 16px; font-weight: 800; }
+header .sub { font-size: 11px; opacity: 0.65; }
+
+.container { max-width: 720px; margin: 0 auto; padding: 18px 16px 0; }
+
+.card {
+  background: white; border-radius: var(--radius);
+  box-shadow: var(--sombra); padding: 20px; margin-bottom: 16px;
+}
+.card-titulo {
+  font-size: 15px; font-weight: 800; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 8px;
+}
+.card-sub { font-size: 12px; color: var(--cinza-texto); margin-bottom: 16px; }
+
+.form-grid { display: grid; gap: 12px; }
+@media (min-width: 560px) { .form-grid.duplo { grid-template-columns: 1fr 1fr; } }
+
+.label {
+  display: block; font-size: 11px; font-weight: 700;
+  color: var(--cinza-texto); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 5px;
+}
+.input, select.input {
+  width: 100%; padding: 11px 13px;
+  border: 1.5px solid var(--cinza-borda); border-radius: 10px;
+  font-size: 14px; font-family: inherit; color: var(--cinza-escuro);
+  background: white; -webkit-appearance: none; appearance: none;
+}
+select.input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath fill='%235a6473' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 13px center;
+  padding-right: 34px;
+}
+.input:focus { outline: none; border-color: var(--primaria); }
+
+.btn {
+  padding: 12px 16px; border: none; border-radius: 10px;
+  font-size: 14px; font-weight: 700; font-family: inherit;
+  cursor: pointer; transition: filter 0.15s;
+}
+.btn:hover { filter: brightness(0.93); }
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-primary { background: var(--primaria); color: white; }
+.btn-secondary { background: var(--cinza-bg); color: var(--cinza-escuro); border: 1.5px solid var(--cinza-borda); }
+.btn-danger { background: var(--vermelho-claro); color: var(--vermelho); }
+.btn-sm { padding: 7px 11px; font-size: 12px; border-radius: 8px; }
+
+.alerta {
+  padding: 11px 13px; border-radius: 10px; font-size: 13px;
+  font-weight: 600; margin-bottom: 14px; display: none;
+}
+.alerta.visivel { display: block; }
+.alerta-erro { background: var(--vermelho-claro); color: var(--vermelho); }
+.alerta-ok { background: var(--verde-claro); color: var(--verde); }
+
+.usuario {
+  border: 1.5px solid var(--cinza-borda); border-radius: 12px;
+  padding: 13px 14px; margin-bottom: 10px;
+}
+.usuario.inativo { background: #fafafa; }
+.usuario-topo { display: flex; align-items: flex-start; gap: 10px; }
+.usuario-info { flex: 1; min-width: 0; }
+.usuario-nome {
+  font-size: 15px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.usuario.inativo .usuario-nome { color: #9ca3af; }
+.usuario-email {
+  font-size: 12px; color: var(--cinza-texto); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.badges { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.4px; padding: 3px 9px; border-radius: 20px;
+}
+.badge-admin    { background: var(--primaria); color: white; }
+.badge-seinfra  { background: var(--azul-claro); color: var(--azul); }
+.badge-goldman  { background: var(--roxo-claro); color: var(--roxo); }
+.badge-equipe   { background: var(--laranja-claro); color: var(--laranja); }
+.badge-ativo    { background: var(--verde-claro); color: var(--verde); }
+.badge-inativo  { background: var(--vermelho-claro); color: var(--vermelho); }
+.badge-voce     { background: #fef3c7; color: #92400e; }
+
+.acoes { display: flex; gap: 6px; flex-shrink: 0; }
+
+.editor {
+  margin-top: 13px; padding-top: 13px;
+  border-top: 1.5px dashed var(--cinza-borda);
+  display: none;
+}
+.editor.aberto { display: block; }
+.editor-acoes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+.vazio, .carregando {
+  text-align: center; padding: 28px 12px;
+  color: var(--cinza-texto); font-size: 14px;
+}
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--cinza-escuro); color: white;
+  padding: 12px 20px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; z-index: 999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  max-width: calc(100% - 32px); text-align: center;
+}
+
+.negado {
+  max-width: 420px; margin: 60px auto; text-align: center;
+  background: white; border-radius: var(--radius);
+  box-shadow: var(--sombra); padding: 36px 26px;
+}
+.negado .icone { font-size: 44px; margin-bottom: 12px; }
+.negado h2 { font-size: 18px; margin-bottom: 8px; }
+.negado p { font-size: 13px; color: var(--cinza-texto); margin-bottom: 20px; }
+
+.equipe-select { display: none; margin-top: 8px; }
+.equipe-select.visivel { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="voltar" href="/index.html" title="Voltar">←</a>
+  <div>
+    <div class="titulo">👥 Usuários</div>
+    <div class="sub">Sistema de O.S. — SINFRA / PMJP</div>
+  </div>
+</header>
+
+<div id="conteudo" style="display:none">
+  <div class="container">
+
+    <div class="card">
+      <div class="card-titulo">➕ Cadastrar novo usuário</div>
+      <div class="card-sub">O usuário poderá entrar no sistema com o e-mail e a senha definidos aqui.</div>
+
+      <div class="alerta" id="alertaForm"></div>
+
+      <form id="formNovo" onsubmit="criarUsuario(event)">
+        <div class="form-grid">
+          <div class="form-grid duplo">
+            <div>
+              <label class="label" for="nome">Nome completo</label>
+              <input class="input" type="text" id="nome" placeholder="Ex.: Maria Silva" required>
+            </div>
+            <div>
+              <label class="label" for="email">E-mail</label>
+              <input class="input" type="email" id="email" placeholder="maria@exemplo.com"
+                     autocomplete="off" required>
+            </div>
+          </div>
+          <div class="form-grid duplo">
+            <div>
+              <label class="label" for="senha">Senha (mínimo 6 caracteres)</label>
+              <input class="input" type="text" id="senha" placeholder="••••••••"
+                     autocomplete="new-password" minlength="6" required>
+            </div>
+            <div>
+              <label class="label" for="perfil">Perfil de acesso</label>
+              <select class="input" id="perfil" onchange="toggleEquipeSelect('novo')">
+                <option value="seinfra">SEINFRA — importa e valida O.S.</option>
+                <option value="goldman">Goldman — despacha para equipes</option>
+                <option value="equipe">Equipe — executa serviços</option>
+                <option value="admin">Admin — acesso total</option>
+              </select>
+            </div>
+          </div>
+          <div class="equipe-select" id="equipeSelectNovo">
+            <label class="label" for="equipeNome">Equipe</label>
+            <select class="input" id="equipeNome">
+              <option value="Equipe 1">Equipe 1</option>
+              <option value="Equipe 2">Equipe 2</option>
+              <option value="Equipe 3">Equipe 3</option>
+              <option value="Equipe 4">Equipe 4</option>
+              <option value="Equipe 5">Equipe 5</option>
+              <option value="Equipe 6">Equipe 6</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary" id="btnCriar">Cadastrar usuário</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-titulo">📋 Usuários cadastrados <span id="contador" style="font-weight:600;color:var(--cinza-texto);font-size:13px"></span></div>
+      <div class="card-sub">Toque em <strong>Editar</strong> para alterar dados, redefinir a senha ou desativar o acesso.</div>
+      <div id="lista"><div class="carregando">Carregando...</div></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="acessoNegado" style="display:none">
+  <div class="negado">
+    <div class="icone">🔒</div>
+    <h2>Acesso restrito</h2>
+    <p>Somente usuários com perfil <strong>Admin</strong> podem gerenciar contas do sistema.</p>
+    <a class="btn btn-secondary" href="/index.html" style="text-decoration:none;display:inline-block">Voltar ao sistema</a>
+  </div>
+</div>
+
+<script>
+if (!localStorage.getItem('os_token')) window.location.replace('/login.html');
+
+function getToken() { return localStorage.getItem('os_token') || ''; }
+function fazerLogout() {
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_usuario');
+  window.location.replace('/login.html');
+}
+
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  headers['Authorization'] = 'Bearer ' + getToken();
+  if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) { fazerLogout(); throw new Error('sessão expirada'); }
+  return r;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function toast(msg, dur = 2400) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), dur);
+}
+
+function alertaForm(msg, tipo = 'erro') {
+  const el = document.getElementById('alertaForm');
+  el.textContent = (tipo === 'erro' ? '⚠️ ' : '✅ ') + msg;
+  el.className = 'alerta alerta-' + (tipo === 'erro' ? 'erro' : 'ok') + ' visivel';
+}
+function limparAlerta() {
+  document.getElementById('alertaForm').className = 'alerta';
+}
+
+const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
+const EQUIPES = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
+let EU = {};
+let USUARIOS = [];
+let EDITANDO = null;
+
+function toggleEquipeSelect(ctx) {
+  if (ctx === 'novo') {
+    const perfil = document.getElementById('perfil').value;
+    document.getElementById('equipeSelectNovo').classList.toggle('visivel', perfil === 'equipe');
+  } else {
+    const perfil = document.getElementById(`e-perfil-${ctx}`).value;
+    const el = document.getElementById(`e-equipe-wrap-${ctx}`);
+    if (el) el.classList.toggle('visivel', perfil === 'equipe');
+  }
+}
+
+(async function init() {
+  try {
+    const r = await apiFetch('/api/auth/me');
+    const data = await r.json();
+    EU = data.usuario || {};
+  } catch { return; }
+
+  if (EU.perfil !== 'admin') {
+    document.getElementById('acessoNegado').style.display = 'block';
+    return;
+  }
+  document.getElementById('conteudo').style.display = 'block';
+  carregarUsuarios();
+})();
+
+async function carregarUsuarios() {
+  const el = document.getElementById('lista');
+  try {
+    const r = await apiFetch('/api/usuarios');
+    const data = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="vazio">${esc(data.erro || 'Erro ao carregar')}</div>`; return; }
+    USUARIOS = data;
+    renderizar();
+  } catch (e) {
+    el.innerHTML = `<div class="vazio">Erro de conexão: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderizar() {
+  const el = document.getElementById('lista');
+  document.getElementById('contador').textContent =
+    USUARIOS.length ? `(${USUARIOS.length})` : '';
+
+  if (!USUARIOS.length) {
+    el.innerHTML = '<div class="vazio">Nenhum usuário cadastrado.</div>';
+    return;
+  }
+
+  el.innerHTML = USUARIOS.map(u => {
+    const souEu = u.id === EU.id;
+    const equipeBadge = u.equipe_nome ? `<span class="badge badge-equipe">${esc(u.equipe_nome)}</span>` : '';
+    const equipeOpts = EQUIPES.map(eq =>
+      `<option value="${esc(eq)}" ${u.equipe_nome === eq ? 'selected' : ''}>${esc(eq)}</option>`
+    ).join('');
+
+    return `
+    <div class="usuario ${u.ativo ? '' : 'inativo'}">
+      <div class="usuario-topo">
+        <div class="usuario-info">
+          <div class="usuario-nome">${esc(u.nome)}</div>
+          <div class="usuario-email">${esc(u.email)}</div>
+          <div class="badges">
+            <span class="badge badge-${esc(u.perfil)}">${esc(PERFIL_LABEL[u.perfil] || u.perfil)}</span>
+            ${equipeBadge}
+            <span class="badge ${u.ativo ? 'badge-ativo' : 'badge-inativo'}">${u.ativo ? 'Ativo' : 'Inativo'}</span>
+            ${souEu ? '<span class="badge badge-voce">Você</span>' : ''}
+          </div>
+        </div>
+        <div class="acoes">
+          <button class="btn btn-secondary btn-sm" onclick="alternarEditor('${u.id}')">Editar</button>
+        </div>
+      </div>
+
+      <div class="editor ${EDITANDO === u.id ? 'aberto' : ''}" id="editor-${u.id}">
+        <div class="form-grid">
+          <div class="form-grid duplo">
+            <div>
+              <label class="label">Nome</label>
+              <input class="input" id="e-nome-${u.id}" type="text" value="${esc(u.nome)}">
+            </div>
+            <div>
+              <label class="label">E-mail</label>
+              <input class="input" id="e-email-${u.id}" type="email" value="${esc(u.email)}">
+            </div>
+          </div>
+          <div class="form-grid duplo">
+            <div>
+              <label class="label">Nova senha (deixe em branco p/ manter)</label>
+              <input class="input" id="e-senha-${u.id}" type="text" placeholder="Não alterar"
+                     autocomplete="new-password">
+            </div>
+            <div>
+              <label class="label">Perfil</label>
+              <select class="input" id="e-perfil-${u.id}" ${souEu ? 'disabled' : ''} onchange="toggleEquipeSelect('${u.id}')">
+                <option value="seinfra"  ${u.perfil === 'seinfra'  ? 'selected' : ''}>SEINFRA</option>
+                <option value="goldman"  ${u.perfil === 'goldman'  ? 'selected' : ''}>Goldman</option>
+                <option value="equipe"   ${u.perfil === 'equipe'   ? 'selected' : ''}>Equipe</option>
+                <option value="admin"    ${u.perfil === 'admin'    ? 'selected' : ''}>Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="equipe-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-equipe-wrap-${u.id}">
+            <label class="label">Equipe</label>
+            <select class="input" id="e-equipe-${u.id}">
+              ${equipeOpts}
+            </select>
+          </div>
+          <div class="editor-acoes">
+            <button class="btn btn-primary btn-sm" onclick="salvarUsuario('${u.id}')">Salvar alterações</button>
+            ${souEu ? '' : `
+              <button class="btn btn-secondary btn-sm" onclick="alternarAtivo('${u.id}', ${!u.ativo})">
+                ${u.ativo ? 'Desativar acesso' : 'Reativar acesso'}
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="excluirUsuario('${u.id}')">Excluir</button>
+            `}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function alternarEditor(id) {
+  EDITANDO = EDITANDO === id ? null : id;
+  renderizar();
+}
+
+async function criarUsuario(e) {
+  e.preventDefault();
+  limparAlerta();
+
+  const nome   = document.getElementById('nome').value.trim();
+  const email  = document.getElementById('email').value.trim();
+  const senha  = document.getElementById('senha').value;
+  const perfil = document.getElementById('perfil').value;
+  const btn    = document.getElementById('btnCriar');
+
+  if (senha.length < 6) { alertaForm('A senha precisa ter ao menos 6 caracteres.'); return; }
+
+  const corpo = { nome, email, senha, perfil };
+  if (perfil === 'equipe') {
+    corpo.equipe_nome = document.getElementById('equipeNome').value;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Cadastrando...';
+  try {
+    const r = await apiFetch('/api/usuarios', {
+      method: 'POST',
+      body: JSON.stringify(corpo),
+    });
+    const data = await r.json();
+    if (!r.ok) { alertaForm(data.erro || 'Erro ao cadastrar usuário'); return; }
+
+    document.getElementById('formNovo').reset();
+    document.getElementById('equipeSelectNovo').classList.remove('visivel');
+    alertaForm(`Usuário ${data.nome} cadastrado com sucesso.`, 'ok');
+    await carregarUsuarios();
+  } catch (err) {
+    alertaForm('Erro de conexão: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Cadastrar usuário';
+  }
+}
+
+async function atualizar(id, corpo, msgOk) {
+  try {
+    const r = await apiFetch(`/api/usuarios/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(corpo),
+    });
+    const data = await r.json();
+    if (!r.ok) { toast(data.erro || 'Erro ao salvar'); return false; }
+    toast(msgOk);
+    await carregarUsuarios();
+    return true;
+  } catch (e) {
+    toast('Erro de conexão: ' + e.message);
+    return false;
+  }
+}
+
+async function salvarUsuario(id) {
+  const nome   = document.getElementById(`e-nome-${id}`).value.trim();
+  const email  = document.getElementById(`e-email-${id}`).value.trim();
+  const senha  = document.getElementById(`e-senha-${id}`).value;
+  const perfil = document.getElementById(`e-perfil-${id}`).value;
+
+  if (!nome || !email) { toast('Nome e e-mail são obrigatórios'); return; }
+  if (senha && senha.length < 6) { toast('A nova senha precisa ter ao menos 6 caracteres'); return; }
+
+  const corpo = { nome, email, perfil };
+  if (senha) corpo.senha = senha;
+  if (perfil === 'equipe') {
+    const eqEl = document.getElementById(`e-equipe-${id}`);
+    if (eqEl) corpo.equipe_nome = eqEl.value;
+  }
+
+  EDITANDO = null;
+  await atualizar(id, corpo, senha ? 'Dados e senha atualizados' : 'Dados atualizados');
+}
+
+async function alternarAtivo(id, ativo) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!ativo && !confirm(`Desativar o acesso de ${u.nome}? A pessoa não conseguirá mais entrar no sistema.`)) return;
+  await atualizar(id, { ativo }, ativo ? 'Acesso reativado' : 'Acesso desativado');
+}
+
+async function excluirUsuario(id) {
+  const u = USUARIOS.find(x => x.id === id);
+  if (!confirm(`Excluir definitivamente o usuário ${u.nome}?\n\nEssa ação não pode ser desfeita. Para bloquear o acesso temporariamente, use "Desativar acesso".`)) return;
+  try {
+    const r = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+    const data = await r.json();
+    if (!r.ok) { toast(data.erro || 'Erro ao excluir'); return; }
+    EDITANDO = null;
+    toast('Usuário excluído');
+    await carregarUsuarios();
+  } catch (e) {
+    toast('Erro de conexão: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
