@@ -208,13 +208,28 @@ async function iniciarBanco() {
     )
   `);
 
+  // Migração: remove constraints CHECK antigas incondicionalmente
+  await pool.query(`
+    DO $drop_ck$
+    BEGIN
+      ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_role_check;
+    EXCEPTION WHEN others THEN NULL;
+    END $drop_ck$
+  `);
+  await pool.query(`
+    DO $drop_ck2$
+    BEGIN
+      ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_perfil_check;
+    EXCEPTION WHEN others THEN NULL;
+    END $drop_ck2$
+  `);
+
   // Migração: coluna 'role' -> 'perfil' e novos valores
   await pool.query(`
     DO $mig_usr$
     DECLARE
       col_exists boolean;
     BEGIN
-      -- Verifica se a coluna 'role' existe
       SELECT EXISTS (
         SELECT 1 FROM pg_attribute
         WHERE attrelid = 'usuarios'::regclass
@@ -222,30 +237,19 @@ async function iniciarBanco() {
       ) INTO col_exists;
 
       IF col_exists THEN
-        -- Migra valores antigos para novos
         UPDATE usuarios SET role = 'admin' WHERE role = 'empresa';
-        UPDATE usuarios SET role = 'goldman' WHERE role = 'operador' OR role = 'coordenador';
+        UPDATE usuarios SET role = 'goldman' WHERE role IN ('operador', 'coordenador');
         UPDATE usuarios SET role = 'equipe' WHERE role = 'visualizador';
 
-        -- Remove a constraint CHECK antiga (se existir)
-        BEGIN
-          ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_role_check;
-        EXCEPTION WHEN others THEN NULL;
-        END;
-
-        -- Renomeia a coluna
         BEGIN
           ALTER TABLE usuarios RENAME COLUMN role TO perfil;
         EXCEPTION WHEN others THEN NULL;
         END;
-
-        -- Adiciona nova constraint
-        BEGIN
-          ALTER TABLE usuarios ADD CONSTRAINT usuarios_perfil_check
-            CHECK (perfil IN ('admin', 'seinfra', 'goldman', 'equipe'));
-        EXCEPTION WHEN others THEN NULL;
-        END;
       END IF;
+
+      -- Migra perfis antigos para novos (caso a coluna ja seja 'perfil')
+      UPDATE usuarios SET perfil = 'goldman' WHERE perfil IN ('operador', 'coordenador');
+      UPDATE usuarios SET perfil = 'equipe'  WHERE perfil = 'visualizador';
     END
     $mig_usr$
   `);
