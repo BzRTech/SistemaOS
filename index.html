@@ -68,9 +68,9 @@ body {
 
 /* STATS BAR */
 .stats-bar {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--primaria-escura);
-  padding: 0 12px 14px; gap: 8px;
+  padding: 0 12px 14px; gap: 6px;
 }
 .stat-item {
   background: rgba(255,255,255,0.1);
@@ -114,9 +114,11 @@ body {
 }
 .os-card:active { transform: scale(0.98); }
 .os-card.aberta { border-left-color: var(--azul); }
-.os-card.validada { border-left-color: #8a5fd0; }
-.os-card.andamento { border-left-color: var(--amarelo); }
-.os-card.concluida { border-left-color: var(--verde-medio); }
+.os-card.encaminhada { border-left-color: #8a5fd0; }
+.os-card.em_execucao { border-left-color: var(--amarelo); }
+.os-card.aguardando_validacao { border-left-color: var(--laranja); }
+.os-card.fechada { border-left-color: var(--verde-medio); }
+.os-card.reaberta { border-left-color: var(--vermelho); }
 .os-card.cancelada { border-left-color: var(--vermelho); }
 
 .os-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
@@ -127,9 +129,11 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
-.badge-validada { background: #f0e9fb; color: #6a3fb5; }
-.badge-andamento { background: #fff8e6; color: var(--laranja); }
-.badge-concluida { background: var(--verde-claro); color: var(--verde); }
+.badge-encaminhada { background: #f0e9fb; color: #6a3fb5; }
+.badge-em_execucao { background: #fff8e6; color: var(--laranja); }
+.badge-aguardando_validacao { background: #fef3c7; color: #92400e; }
+.badge-fechada { background: var(--verde-claro); color: var(--verde); }
+.badge-reaberta { background: var(--vermelho-claro); color: var(--vermelho); }
 .badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
 
 .os-titulo { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--cinza-escuro); line-height: 1.3; }
@@ -432,9 +436,13 @@ textarea.form-input { min-height: 80px; resize: vertical; }
   display: flex; align-items: center; justify-content: center;
 }
 
-@media (max-width: 360px) {
+@media (max-width: 420px) {
+  .stats-bar { grid-template-columns: repeat(3, 1fr); }
+  .stat-num { font-size: 18px; }
+}
+@media (max-width: 320px) {
   .stats-bar { grid-template-columns: repeat(2, 1fr); }
-  .stat-num { font-size: 20px; }
+  .stat-num { font-size: 18px; }
 }
 </style>
 </head>
@@ -479,8 +487,9 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
 <div class="stats-bar">
   <div class="stat-item"><div class="stat-num" id="statTotal">–</div><div class="stat-label">Total</div></div>
   <div class="stat-item"><div class="stat-num" id="statAbertas">–</div><div class="stat-label">Abertas</div></div>
-  <div class="stat-item"><div class="stat-num" id="statAndamento">–</div><div class="stat-label">Andamento</div></div>
-  <div class="stat-item"><div class="stat-num" id="statConcluidas">–</div><div class="stat-label">Concluídas</div></div>
+  <div class="stat-item"><div class="stat-num" id="statEmExecucao">–</div><div class="stat-label">Execução</div></div>
+  <div class="stat-item"><div class="stat-num" id="statValidacao">–</div><div class="stat-label">Validação</div></div>
+  <div class="stat-item"><div class="stat-num" id="statFechadas">–</div><div class="stat-label">Fechadas</div></div>
 </div>
 
 <!-- NAV TABS -->
@@ -1232,9 +1241,10 @@ function abrirMapa(id, ev) {
 function atualizarStats() {
   const c = s => S.ordens.filter(o => o.status === s).length;
   document.getElementById('statTotal').textContent = S.ordens.length;
-  document.getElementById('statAbertas').textContent = c('aberta');
-  document.getElementById('statAndamento').textContent = c('andamento');
-  document.getElementById('statConcluidas').textContent = c('concluida');
+  document.getElementById('statAbertas').textContent = c('aberta') + c('reaberta') + c('encaminhada');
+  document.getElementById('statEmExecucao').textContent = c('em_execucao');
+  document.getElementById('statValidacao').textContent = c('aguardando_validacao');
+  document.getElementById('statFechadas').textContent = c('fechada');
 }
 
 // ── NOVA OS ───────────────────────────────────────────────────────────────────
@@ -1420,9 +1430,8 @@ async function abrirDetalhes(id) {
   document.getElementById('modalTipo').textContent = os.tipo || '';
   document.getElementById('modalBadge').innerHTML = `<span class="os-badge badge-${os.status}">${labelStatus(os.status)}</span>`;
 
-  const finalizada = os.status === 'concluida' || os.status === 'cancelada';
-  // foto de conclusão só fica ativa depois que o buraco for validado
-  const conclusaoLiberada = !finalizada && os.status !== 'aberta';
+  const finalizada = os.status === 'fechada' || os.status === 'cancelada';
+  const conclusaoLiberada = !finalizada && !['aberta','encaminhada'].includes(os.status);
 
   document.getElementById('modalCorpo').innerHTML = `
     <!-- INFO -->
@@ -1563,20 +1572,17 @@ async function abrirDetalhes(id) {
       return acoesHtml;
     })()}
 
-    <!-- AÇÕES LEGADAS -->
-    ${!finalizada ? `
+    <!-- STATUS -->
+    ${finalizada ? `
     <div class="form-card">
-      <div class="form-card-title">⚡ Alterar Status</div>
-      <div class="btn-row">
-        ${os.status==='aberta'?`<button class="btn btn-primary" onclick="mudarStatus('validada')">✔️ Validar O.S.</button>`:''}
-        ${os.status==='validada'?`<button class="btn btn-warning" onclick="mudarStatus('andamento')">🔧 Iniciar Atendimento</button>`:''}
-        ${os.status==='andamento'?`<button class="btn btn-success" onclick="mudarStatus('concluida')">✅ Concluir O.S.</button>`:''}
-        <button class="btn btn-danger" onclick="mudarStatus('cancelada')">❌ Cancelar</button>
+      <div style="text-align:center;padding:8px;color:var(--cinza-texto);font-size:13px">
+        ${os.status==='fechada'?'✅ Esta O.S. foi fechada/concluída.':'❌ Esta O.S. foi cancelada.'}
       </div>
     </div>` : `
     <div class="form-card">
-      <div style="text-align:center;padding:8px;color:var(--cinza-texto);font-size:13px">
-        ${os.status==='concluida'?'✅ Esta O.S. foi concluída.':'❌ Esta O.S. foi cancelada.'}
+      <div class="form-card-title">⚡ Ações rápidas</div>
+      <div class="btn-row">
+        <button class="btn btn-danger" onclick="mudarStatus('cancelada')">❌ Cancelar O.S.</button>
       </div>
     </div>`}
 
@@ -1627,27 +1633,8 @@ async function mudarStatus(novoStatus) {
   const os = S.osAberta;
   if (!os) return;
 
-  if (novoStatus === 'concluida' && !os.fotoConclusao && !S.fotoConclusaoModal) {
-    toast('⚠️ Adicione a foto de conclusão antes de concluir a O.S.', 3000);
-    return;
-  }
-
-  const obsMap = { validada:'O.S. validada', andamento:'Atendimento iniciado', concluida:'Serviço concluído', cancelada:'O.S. cancelada' };
-  let obs = obsMap[novoStatus];
-
-  // na validação, quem valida está no local: atualiza as coordenadas pelo GPS
-  let referencia;
-  if (novoStatus === 'validada') {
-    toast('📡 Obtendo localização do aparelho...', 9000);
-    const gps = await capturarGPS();
-    if (gps) {
-      referencia = aplicarCoordenadas(os.referencia || '', gps);
-      obs += ` — localização confirmada pelo GPS (${gps.lat}, ${gps.lng}${gps.acc ? `, ±${gps.acc} m` : ''})`;
-      toast('📍 Coordenadas atualizadas pela localização do aparelho!');
-    } else {
-      toast('⚠️ GPS indisponível — validada sem atualizar a localização.', 3000);
-    }
-  }
+  const obsMap = { cancelada:'O.S. cancelada' };
+  const obs = obsMap[novoStatus] || `Status alterado para ${novoStatus}`;
 
   const historico = [...(os.historico||[]), { status: novoStatus, data: new Date().toISOString(), obs }];
 
@@ -1656,9 +1643,6 @@ async function mudarStatus(novoStatus) {
     responsavel: os.responsavel || '',
     equipe: os.equipe || '',
     historico,
-    fotoConclusao: S.fotoConclusaoModal || os.fotoConclusao || null,
-    ...(referencia !== undefined && { referencia }),
-    ...(novoStatus === 'concluida' && { concluidoEm: new Date().toISOString() }),
   };
 
   await atualizarOS(os.id, body);
@@ -1749,11 +1733,13 @@ function imprimirOS() {
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 
   const badges = {
-    aberta:    ['#e8f0fa', '#1a6eb4', '#b3cfe8', '📋 Aberta'],
-    validada:  ['#f0e9fb', '#6a3fb5', '#c9b3ec', '✔ Validada'],
-    andamento: ['#fff8e6', '#e07b1a', '#f5d9a0', '🔧 Em Andamento'],
-    concluida: ['#e8f5ee', '#1a6e45', '#a8d5b8', '✅ Concluída'],
-    cancelada: ['#fdecea', '#d32f2f', '#f3b6b1', '❌ Cancelada'],
+    aberta:                ['#e8f0fa', '#1a6eb4', '#b3cfe8', '📋 Aberta'],
+    encaminhada:           ['#f0e9fb', '#6a3fb5', '#c9b3ec', '📤 Encaminhada'],
+    em_execucao:           ['#fff8e6', '#e07b1a', '#f5d9a0', '🔧 Em Execução'],
+    aguardando_validacao:  ['#fef3c7', '#92400e', '#f5d9a0', '⏳ Aguardando Validação'],
+    fechada:               ['#e8f5ee', '#1a6e45', '#a8d5b8', '✅ Fechada'],
+    reaberta:              ['#fdecea', '#d32f2f', '#f3b6b1', '🔄 Reaberta'],
+    cancelada:             ['#fdecea', '#d32f2f', '#f3b6b1', '❌ Cancelada'],
   };
   const [bgB, corB, bordaB, lblB] = badges[os.status] || badges.aberta;
   const prios = {
@@ -1980,11 +1966,11 @@ function renderRelatorio() {
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
-      ${[['aberta','Abertas',c('aberta'),'var(--azul)','var(--azul-claro)'],
-         ['validada','Validadas',c('validada'),'#6a3fb5','#f0e9fb'],
-         ['andamento','Andamento',c('andamento'),'var(--laranja)','#fff8e6'],
-         ['concluida','Concluídas',c('concluida'),'var(--verde)','var(--verde-claro)'],
-         ['cancelada','Canceladas',c('cancelada'),'var(--vermelho)','var(--vermelho-claro)']
+      ${[['aberta','Abertas',c('aberta')+c('reaberta'),'var(--azul)','var(--azul-claro)'],
+         ['encaminhada','Encaminhadas',c('encaminhada'),'#6a3fb5','#f0e9fb'],
+         ['em_execucao','Em Execução',c('em_execucao'),'var(--laranja)','#fff8e6'],
+         ['aguardando','Aguard. Valid.',c('aguardando_validacao'),'#92400e','#fef3c7'],
+         ['fechada','Fechadas',c('fechada'),'var(--verde)','var(--verde-claro)']
         ].map(([,lbl,n,cor,bg]) => `
         <div style="background:${bg};border-radius:10px;padding:12px;text-align:center">
           <div style="font-size:26px;font-weight:700;color:${cor}">${n}</div>
@@ -2000,7 +1986,7 @@ function renderRelatorio() {
         ${pct(qtd)}
       </div>`).join('')}
     <div style="margin-top:14px;font-size:12px;color:var(--cinza-texto)">
-      <strong>Taxa de conclusão:</strong> ${total?Math.round(c('concluida')/total*100):0}%
+      <strong>Taxa de conclusão:</strong> ${total?Math.round(c('fechada')/total*100):0}%
     </div>
   `;
 }

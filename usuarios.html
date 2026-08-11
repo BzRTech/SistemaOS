@@ -331,7 +331,7 @@ function toggleEquipeSelect(ctx) {
 async function carregarUsuarios() {
   const el = document.getElementById('lista');
   try {
-    const r = await apiFetch('/api/usuarios');
+    const r = await apiFetch('/api/auth/usuarios');
     const data = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="vazio">${esc(data.erro || 'Erro ao carregar')}</div>`; return; }
     USUARIOS = data;
@@ -450,7 +450,7 @@ async function criarUsuario(e) {
   btn.disabled = true;
   btn.textContent = 'Cadastrando...';
   try {
-    const r = await apiFetch('/api/usuarios', {
+    const r = await apiFetch('/api/auth/usuarios', {
       method: 'POST',
       body: JSON.stringify(corpo),
     });
@@ -471,7 +471,7 @@ async function criarUsuario(e) {
 
 async function atualizar(id, corpo, msgOk) {
   try {
-    const r = await apiFetch(`/api/usuarios/${id}`, {
+    const r = await apiFetch(`/api/auth/usuarios/${id}`, {
       method: 'PUT',
       body: JSON.stringify(corpo),
     });
@@ -516,7 +516,7 @@ async function excluirUsuario(id) {
   const u = USUARIOS.find(x => x.id === id);
   if (!confirm(`Excluir definitivamente o usuário ${u.nome}?\n\nEssa ação não pode ser desfeita. Para bloquear o acesso temporariamente, use "Desativar acesso".`)) return;
   try {
-    const r = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+    const r = await apiFetch(`/api/auth/usuarios/${id}`, { method: 'DELETE' });
     const data = await r.json();
     if (!r.ok) { toast(data.erro || 'Erro ao excluir'); return; }
     EDITANDO = null;
