@@ -30,6 +30,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
 
 const PERFIS_VALIDOS = ['admin', 'seinfra', 'goldman', 'equipe'];
+const EMPRESAS_VALIDAS = ['Goldman'];
 const EQUIPES_VALIDAS = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
 const STATUS_VALIDOS = ['aberta', 'encaminhada', 'em_execucao', 'aguardando_validacao', 'fechada', 'reaberta'];
 
@@ -67,6 +68,7 @@ async function iniciarBanco() {
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS tag TEXT DEFAULT ''`);
 
   // Migração: novas colunas de workflow
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS empresa_designada TEXT`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS equipe_designada TEXT`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_inicio TEXT`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS foto_fim TEXT`);
@@ -336,6 +338,7 @@ function mapRow(r, incluirFotos) {
     historico: parseHistorico(r.historico),
     criadoEm: r.criado_em, atualizadoEm: r.atualizado_em, concluidoEm: r.concluido_em,
     // Novos campos de workflow
+    empresaDesignada: r.empresa_designada || null,
     equipeDesignada: r.equipe_designada || null,
     fotoInicio: incluirFotos ? (r.foto_inicio || null) : undefined,
     fotoFim: incluirFotos ? (r.foto_fim || null) : undefined,
@@ -519,25 +522,26 @@ app.get('/api/proximo-numero', qualquerUsuario, async (req, res) => {
 
 app.get('/api/ordens', qualquerUsuario, async (req, res) => {
   try {
-    let filtroEquipe = '';
+    let filtro = '';
     const params = [];
-    // equipe só vê OS designadas para sua equipe
     if (req.usuario.perfil === 'equipe') {
       params.push(req.usuario.equipe_nome || '');
-      filtroEquipe = `WHERE equipe_designada = $${params.length}`;
+      filtro = `WHERE equipe_designada = $${params.length}`;
+    } else if (req.usuario.perfil === 'goldman') {
+      filtro = `WHERE empresa_designada = 'Goldman'`;
     }
 
     const { rows } = await pool.query(`
       SELECT id, numero, tipo, descricao, endereco, bairro, referencia,
              solicitante, responsavel, equipe, prioridade, prazo, status,
              ocorrencias, primeira_ocorrencia, tag,
-             equipe_designada, gps_inicio, gps_fim,
+             empresa_designada, equipe_designada, gps_inicio, gps_fim,
              data_inicio_servico, data_fim_servico,
              validado_por, validado_em, motivo_rejeicao, data_solicitacao,
              (foto_abertura  IS NOT NULL AND foto_abertura::text  NOT IN ('', '[]')) AS tem_abertura,
              (foto_conclusao IS NOT NULL AND foto_conclusao::text NOT IN ('', '[]')) AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
-      FROM ordens_servico ${filtroEquipe} ORDER BY criado_em DESC
+      FROM ordens_servico ${filtro} ORDER BY criado_em DESC
     `, params);
     res.json(rows.map(r => ({
       ...mapRow(r, false),
@@ -558,7 +562,8 @@ app.get('/api/ordens/:id', qualquerUsuario, async (req, res) => {
 const COLUNAS_INSERT = `
   id, numero, tipo, descricao, endereco, bairro, referencia,
   solicitante, responsavel, equipe, prioridade, prazo, status,
-  ocorrencias, primeira_ocorrencia, tag, foto_abertura, historico, criado_em, data_solicitacao`;
+  ocorrencias, primeira_ocorrencia, tag, foto_abertura, historico, criado_em, data_solicitacao,
+  empresa_designada, equipe_designada`;
 
 function valoresInsert(o, numero, criadoEm) {
   const data = criadoEm || new Date().toISOString();
@@ -575,6 +580,8 @@ function valoresInsert(o, numero, criadoEm) {
     (o.tag || '').toString().trim().slice(0, 40),
     serializarFotos(o.fotoAbertura), historico, data,
     o.dataSolicitacao || o.data_solicitacao || null,
+    o.empresaDesignada || o.empresa_designada || null,
+    o.equipeDesignada || o.equipe_designada || null,
   ];
 }
 
@@ -681,7 +688,8 @@ app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
          foto_abertura = $5, foto_conclusao = $6, bairro = $7, referencia = $8,
          tipo = $9, descricao = $10, endereco = $11, solicitante = $12,
          prioridade = $13, prazo = $14,
-         atualizado_em = NOW(), concluido_em = $15
+         atualizado_em = NOW(), concluido_em = $15,
+         empresa_designada = $17, equipe_designada = $18
        WHERE id = $16 RETURNING *`,
       [manter(o.status, cur.status), manter(o.responsavel, cur.responsavel),
        manter(o.equipe, cur.equipe),
@@ -693,7 +701,9 @@ app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
        o.solicitante !== undefined ? (o.solicitante || cur.solicitante) : cur.solicitante,
        manter(o.prioridade, cur.prioridade),
        o.prazo !== undefined ? (o.prazo || null) : cur.prazo,
-       manter(o.concluidoEm, cur.concluido_em), id]
+       manter(o.concluidoEm, cur.concluido_em), id,
+       o.empresaDesignada !== undefined ? (o.empresaDesignada || null) : cur.empresa_designada,
+       o.equipeDesignada !== undefined ? (o.equipeDesignada || null) : cur.equipe_designada]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }

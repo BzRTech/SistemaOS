@@ -602,18 +602,35 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
   </div>
 
   <div class="form-card">
-    <div class="form-card-title">👷 Execução</div>
+    <div class="form-card-title">👷 Execução e Direcionamento</div>
     <div class="form-group">
       <label class="form-label">Data de Solicitacao</label>
       <input class="form-input" type="date" id="novaDataSolicitacao">
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">🏢 Direcionar p/ Empresa</label>
+        <select class="form-input" id="novaEmpresa" onchange="toggleNovaEquipe()">
+          <option value="">— nenhuma (só SEINFRA) —</option>
+          <option value="Goldman">Goldman</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">👥 Equipe de Execução</label>
+        <select class="form-input" id="novaEquipeDesignada" disabled>
+          <option value="">— a empresa direciona —</option>
+          <option value="Equipe 1">Equipe 1</option>
+          <option value="Equipe 2">Equipe 2</option>
+          <option value="Equipe 3">Equipe 3</option>
+          <option value="Equipe 4">Equipe 4</option>
+          <option value="Equipe 5">Equipe 5</option>
+          <option value="Equipe 6">Equipe 6</option>
+        </select>
+      </div>
+    </div>
     <div class="form-group">
       <label class="form-label">Responsável Técnico</label>
       <input class="form-input" type="text" id="novaResponsavel" list="respSugestoes" placeholder="Engenheiro / Fiscal">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Equipe / Empreiteira</label>
-      <input class="form-input" type="text" id="novaEquipe" list="eqSugestoes" placeholder="Nome da equipe ou empresa">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="form-group" style="margin:0">
@@ -1178,8 +1195,8 @@ function renderLista() {
         ${os.ocorrencias>1?`<span class="recorrente-pill">🔁 Recorrente · ${os.ocorrencias} ocorrências desde ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</span>`:''}
       </div>`:''}
       <div class="os-info-row" style="margin-top:4px">
-        ${os.responsavel?`<div class="os-info-item">👷 ${os.responsavel}</div>`:''}
-        ${os.equipe_designada?`<div class="os-info-item">👥 ${os.equipe_designada}</div>`:''}
+        ${os.empresaDesignada?`<div class="os-info-item">🏢 ${os.empresaDesignada}</div>`:''}
+        ${os.equipeDesignada?`<div class="os-info-item">👥 ${os.equipeDesignada}</div>`:''}
         <div class="os-info-item">🕐 ${fmtDataHora(os.criadoEm)}</div>
       </div>
       <div class="os-fotos-row">
@@ -1274,17 +1291,22 @@ async function salvarNovaOS() {
   btn.disabled = true;
   btn.textContent = '⏳ Salvando...';
 
+  const empresaSel = v('novaEmpresa');
+  const equipeSel = v('novaEquipeDesignada');
+
   const os = {
     tipo, descricao, endereco,
     bairro: v('novaBairro'),
     referencia,
     dataSolicitacao: document.getElementById('novaDataSolicitacao').value || null,
     responsavel: v('novaResponsavel'),
-    equipe: v('novaEquipe'),
+    equipe: '',
     prioridade: v('novaPrioridade'),
     prazo: v('novaPrazo') || null,
     tag: v('novaTag'),
     fotoAbertura: S.fotosAbertura,
+    empresaDesignada: empresaSel || null,
+    equipeDesignada: equipeSel || null,
   };
 
   try {
@@ -1309,13 +1331,23 @@ async function salvarNovaOS() {
 
 function limparFormNova() {
   ['novaTipo','novaDescricao','novaEndereco','novaBairro','novaReferencia',
-   'novaDataSolicitacao','novaResponsavel','novaEquipe','novaPrazo','novaTag','novaCoordenadas'].forEach(id => {
+   'novaDataSolicitacao','novaResponsavel','novaPrazo','novaTag','novaCoordenadas',
+   'novaEmpresa','novaEquipeDesignada'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('novaPrioridade').value = 'media';
+  const eqSel = document.getElementById('novaEquipeDesignada');
+  if (eqSel) eqSel.disabled = true;
   S.fotosAbertura = [];
   document.getElementById('previewFotoAbertura').innerHTML = '';
   document.getElementById('alertNova').innerHTML = '';
+}
+
+function toggleNovaEquipe() {
+  const empresa = document.getElementById('novaEmpresa').value;
+  const eqSel = document.getElementById('novaEquipeDesignada');
+  eqSel.disabled = !empresa;
+  if (!empresa) eqSel.value = '';
 }
 
 // ── IMPORTAR PROTOCOLO SEN ────────────────────────────────────────────────────
@@ -1526,7 +1558,21 @@ async function abrirDetalhes(id) {
       const usuario = getUsuario();
       let acoesHtml = '';
 
-      if ((usuario.perfil === 'goldman' || usuario.perfil === 'admin') && (os.status === 'aberta' || os.status === 'reaberta')) {
+      // SEINFRA/Admin: direcionar OS para empresa
+      if ((usuario.perfil === 'seinfra' || usuario.perfil === 'admin') && (os.status === 'aberta' || os.status === 'reaberta') && !os.empresaDesignada) {
+        acoesHtml += `
+          <div class="form-card" style="border:2px solid var(--azul);background:rgba(29,78,216,0.06)">
+            <div class="form-card-title" style="color:var(--azul)">🏢 Direcionar para Empresa</div>
+            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Selecione a empresa que executará o serviço.</p>
+            <select class="form-input" id="selectEmpresa">
+              <option value="">Selecione a empresa...</option>
+              <option value="Goldman">Goldman</option>
+            </select>
+            <button class="btn btn-primary" style="margin-top:10px" onclick="direcionarEmpresa('${os.id}')">🏢 Direcionar</button>
+          </div>`;
+      }
+
+      if ((usuario.perfil === 'goldman' || usuario.perfil === 'admin') && (os.status === 'aberta' || os.status === 'reaberta') && os.empresaDesignada) {
         acoesHtml += `
           <div class="form-card" style="border:2px solid #8a5fd0;background:rgba(138,95,208,0.06)">
             <div class="form-card-title" style="color:#8a5fd0">📤 Encaminhar para Equipe</div>
@@ -2174,8 +2220,9 @@ function renderInfoCard(os) {
         </td></tr>
         ${os.referencia?`<tr><td>Referência</td><td>${os.referencia}</td></tr>`:''}
         <tr><td>Solicitante</td><td>${os.solicitante||'–'}</td></tr>
+        ${os.empresaDesignada?`<tr><td>🏢 Empresa</td><td><strong>${os.empresaDesignada}</strong></td></tr>`:'<tr><td>🏢 Empresa</td><td style="color:var(--cinza-texto)">Não direcionada (só SEINFRA)</td></tr>'}
+        ${os.equipeDesignada?`<tr><td>👥 Equipe Designada</td><td><strong>${os.equipeDesignada}</strong></td></tr>`:''}
         ${os.responsavel?`<tr><td>Responsável</td><td>${os.responsavel}</td></tr>`:''}
-        ${os.equipe?`<tr><td>Equipe</td><td>${os.equipe}</td></tr>`:''}
         <tr><td>Prioridade</td><td class="prio-${os.prioridade}">${labelPrio(os.prioridade)}</td></tr>
         ${os.tag?`<tr><td>Origem</td><td><span class="tag-pill">🏷️ ${os.tag}</span></td></tr>`:''}
         ${os.ocorrencias>1?`<tr><td>Recorrência</td><td><span class="recorrente-pill">🔁 ${os.ocorrencias} ocorrências</span><div style="font-size:12px;color:var(--cinza-texto);margin-top:4px">Primeira ocorrência em ${fmtData(os.primeiraOcorrencia||os.criadoEm)}</div></td></tr>`:''}
@@ -2473,16 +2520,36 @@ async function testarConexaoSilencioso() {
 }
 
 // ── WORKFLOW ACTIONS ──────────────────────────────────────────────────────────
+async function direcionarEmpresa(id) {
+  const empresa = document.getElementById('selectEmpresa').value;
+  if (!empresa) return toast('Selecione a empresa');
+  try {
+    const os = S.osAberta;
+    const historico = [...(os.historico||[]), {
+      status: os.status, data: new Date().toISOString(),
+      obs: `Direcionada para empresa ${empresa}`,
+    }];
+    const r = await apiFetch(`/api/ordens/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ empresaDesignada: empresa, historico }),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
+    toast(`OS direcionada para ${empresa}!`);
+    fecharModal();
+    carregarOS();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
 async function encaminharOS(id) {
   const equipe = document.getElementById('selectEquipe').value;
   if (!equipe) return toast('Selecione uma equipe');
   try {
-    const r = await fetch(`/api/ordens/${id}/encaminhar`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ equipe })
+    const r = await apiFetch(`/api/ordens/${id}/encaminhar`, {
+      method: 'POST',
+      body: JSON.stringify({ equipe }),
     });
     if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
-    toast('OS encaminhada!');
+    toast('OS encaminhada para ' + equipe + '!');
     fecharModal();
     carregarOS();
   } catch(e) { toast('Erro: ' + e.message); }
@@ -2508,9 +2575,9 @@ async function registrarFotoServico(id, tipo) {
         gps: exif.gps || null,
         dataHora: exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString()
       };
-      const r = await fetch(`/api/ordens/${id}/${endpoint}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+      const r = await apiFetch(`/api/ordens/${id}/${endpoint}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
       toast(tipo === 'inicio' ? 'Início registrado!' : 'Conclusão registrada!');
@@ -2538,9 +2605,9 @@ async function validarOS(id, aceitar) {
     if (!motivo) return;
   }
   try {
-    const r = await fetch(`/api/ordens/${id}/validar`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ aceitar, motivo })
+    const r = await apiFetch(`/api/ordens/${id}/validar`, {
+      method: 'POST',
+      body: JSON.stringify({ aceitar, motivo }),
     });
     if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
     toast(aceitar ? 'OS validada e fechada!' : 'OS reaberta!');
