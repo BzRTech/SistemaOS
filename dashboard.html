@@ -107,9 +107,11 @@ tr:hover td { background: #fafbfc; }
   text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
-.badge-validada { background: #f0e9fb; color: #6a3fb5; }
-.badge-andamento { background: #fff8e6; color: var(--laranja); }
-.badge-concluida { background: var(--verde-claro); color: var(--verde); }
+.badge-encaminhada { background: #f0e9fb; color: #6a3fb5; }
+.badge-em_execucao { background: #fff8e6; color: var(--laranja); }
+.badge-aguardando_validacao { background: #fef3cd; color: #856404; }
+.badge-fechada { background: var(--verde-claro); color: var(--verde); }
+.badge-reaberta { background: var(--azul-claro); color: var(--azul); }
 .badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
 .pill-rec {
   display: inline-flex; align-items: center; gap: 4px;
@@ -181,10 +183,10 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
 
   <div class="cards">
     <div class="card-stat c-total"><div class="num" id="stTotal">–</div><div class="rotulo">Total de O.S.</div></div>
-    <div class="card-stat c-aberta"><div class="num" id="stAbertas">–</div><div class="rotulo">Abertas</div></div>
-    <div class="card-stat c-validada"><div class="num" id="stValidadas">–</div><div class="rotulo">Validadas</div></div>
-    <div class="card-stat c-andamento"><div class="num" id="stAndamento">–</div><div class="rotulo">Em andamento</div></div>
-    <div class="card-stat c-concluida"><div class="num" id="stConcluidas">–</div><div class="rotulo">Concluídas</div></div>
+    <div class="card-stat c-aberta"><div class="num" id="stAbertas">–</div><div class="rotulo">Abertas / Encaminhadas</div></div>
+    <div class="card-stat c-andamento"><div class="num" id="stEmExecucao">–</div><div class="rotulo">Em Execução</div></div>
+    <div class="card-stat c-validada"><div class="num" id="stValidacao">–</div><div class="rotulo">Aguardando Validação</div></div>
+    <div class="card-stat c-concluida"><div class="num" id="stFechadas">–</div><div class="rotulo">Fechadas</div></div>
     <div class="card-stat c-cancelada"><div class="num" id="stCanceladas">–</div><div class="rotulo">Canceladas</div></div>
     <div class="card-stat c-recorrente"><div class="num" id="stRecorrentes">–</div><div class="rotulo">🔁 Recorrentes</div></div>
     <div class="card-stat c-concluida"><div class="num" id="stTaxa">–</div><div class="rotulo">Taxa de conclusão</div></div>
@@ -196,11 +198,13 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
       <div id="mapaWrap"><div class="mapa-vazio">Carregando mapa...</div></div>
       <div class="mapa-legenda">
         <span><span class="leg-dot" style="background:#1a6eb4"></span> Aberta</span>
-        <span><span class="leg-dot" style="background:#8a5fd0"></span> Validada</span>
-        <span><span class="leg-dot" style="background:#e07b1a"></span> Em andamento</span>
-        <span><span class="leg-dot" style="background:#2d9e65"></span> Concluída</span>
+        <span><span class="leg-dot" style="background:#8a5fd0"></span> Encaminhada</span>
+        <span><span class="leg-dot" style="background:#e07b1a"></span> Em Execução</span>
+        <span><span class="leg-dot" style="background:#f5a623"></span> Aguardando Validação</span>
+        <span><span class="leg-dot" style="background:#2d9e65"></span> Fechada</span>
         <span><span class="leg-dot" style="background:#d32f2f"></span> Cancelada</span>
-        <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente (nº de ocorrências)</span>
+        <span><span class="leg-dot" style="background:#17a2b8"></span> 📍 GPS do Serviço</span>
+        <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente</span>
       </div>
     </div>
     <div class="painel">
@@ -238,7 +242,11 @@ function fmtDataHora(iso) {
   return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
 }
 function labelStatus(s) {
-  return { aberta:'Aberta', validada:'Validada', andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' }[s] || s;
+  return {
+    aberta:'Aberta', encaminhada:'Encaminhada', em_execucao:'Em Execução',
+    aguardando_validacao:'Aguardando Validação', fechada:'Fechada',
+    reaberta:'Reaberta', cancelada:'Cancelada'
+  }[s] || s;
 }
 function coordsDe(os) {
   const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
@@ -247,6 +255,13 @@ function coordsDe(os) {
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return [lat, lng];
 }
+function gpsDe(gpsStr) {
+  if (!gpsStr) return null;
+  const parts = gpsStr.split(',').map(s => parseFloat(s.trim()));
+  if (parts.length !== 2 || parts.some(isNaN)) return null;
+  if (Math.abs(parts[0]) > 90 || Math.abs(parts[1]) > 180) return null;
+  return [parts[0], parts[1]];
+}
 function urlMapa(os) {
   const c = coordsDe(os);
   const q = c ? `${c[0]},${c[1]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
@@ -254,15 +269,18 @@ function urlMapa(os) {
 }
 
 const COR_STATUS = {
-  aberta: '#1a6eb4', validada: '#8a5fd0', andamento: '#e07b1a',
-  concluida: '#2d9e65', cancelada: '#d32f2f',
+  aberta: '#1a6eb4', encaminhada: '#8a5fd0', em_execucao: '#e07b1a',
+  aguardando_validacao: '#f5a623', fechada: '#2d9e65',
+  reaberta: '#1a6eb4', cancelada: '#d32f2f',
 };
 
 let mapa = null, camadaPontos = null;
 function renderMapa(ordens) {
   const comCoord = ordens.map(o => ({ o, c: coordsDe(o) })).filter(x => x.c);
+  const gpsCount = ordens.filter(o => gpsDe(o.gpsInicio) || gpsDe(o.gpsFim)).length;
+  const totalPontos = comCoord.length + gpsCount;
   document.getElementById('mapaContador').textContent =
-    comCoord.length ? `· ${comCoord.length} ponto(s)` : '';
+    totalPontos ? `· ${totalPontos} ponto(s)` : '';
 
   if (!window.L) return; // Leaflet não carregou (sem internet)
   if (!comCoord.length) {
@@ -302,6 +320,25 @@ function renderMapa(ordens) {
     L.marker(c, { icon }).bindPopup(popup).addTo(camadaPontos);
     pontos.push(c);
   }
+
+  // Plota pontos GPS capturados nas fotos de serviço (início e fim)
+  for (const o of ordens) {
+    const gpsI = gpsDe(o.gpsInicio);
+    const gpsF = gpsDe(o.gpsFim);
+    if (gpsI) {
+      const icon = L.divIcon({ className: '', html: '<div class="mkr" style="background:#17a2b8;border-color:#fff"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início</div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
+      L.marker(gpsI, { icon }).bindPopup(popup).addTo(camadaPontos);
+      pontos.push(gpsI);
+    }
+    if (gpsF) {
+      const icon = L.divIcon({ className: '', html: '<div class="mkr" style="background:#17a2b8;border-color:#fff"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📸 Foto de Conclusão</div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsF[0].toFixed(6)}, ${gpsF[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsF[0]},${gpsF[1]}" target="_blank">🗺️ Google Maps</a>`;
+      L.marker(gpsF, { icon }).bindPopup(popup).addTo(camadaPontos);
+      pontos.push(gpsF);
+    }
+  }
+
   ultimosPontos = pontos;
   // enquadra só na 1ª carga; nas atualizações automáticas preserva o zoom/posição
   if (primeiraVez) {
@@ -337,13 +374,13 @@ function render(ordens) {
   const total = ordens.length;
   const recorrentes = ordens.filter(o => (o.ocorrencias||1) > 1);
   document.getElementById('stTotal').textContent = total;
-  document.getElementById('stAbertas').textContent = c('aberta');
-  document.getElementById('stValidadas').textContent = c('validada');
-  document.getElementById('stAndamento').textContent = c('andamento');
-  document.getElementById('stConcluidas').textContent = c('concluida');
+  document.getElementById('stAbertas').textContent = c('aberta') + c('reaberta') + c('encaminhada');
+  document.getElementById('stEmExecucao').textContent = c('em_execucao');
+  document.getElementById('stValidacao').textContent = c('aguardando_validacao');
+  document.getElementById('stFechadas').textContent = c('fechada');
   document.getElementById('stCanceladas').textContent = c('cancelada');
   document.getElementById('stRecorrentes').textContent = recorrentes.length;
-  document.getElementById('stTaxa').textContent = total ? Math.round(c('concluida')/total*100) + '%' : '–';
+  document.getElementById('stTaxa').textContent = total ? Math.round(c('fechada')/total*100) + '%' : '–';
 
   const agrupa = chave => {
     const m = {};
@@ -410,9 +447,11 @@ setInterval(carregar, 60000); // atualiza a cada minuto
 // Mostra nome do usuário logado
 fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
   if (!data) return;
-  const roles = { empresa: 'Empresa', admin: 'Admin', coordenador: 'Coordenador' };
+  const perfis = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
   const el = document.getElementById('usuarioSub');
-  if (el) el.textContent = `${data.usuario.nome} · ${roles[data.usuario.role] || data.usuario.role}`;
+  const u = data.usuario;
+  const label = perfis[u.perfil] || u.perfil || perfis[u.role] || u.role;
+  if (el) el.textContent = `${u.nome} · ${label}`;
 }).catch(() => {});
 </script>
 </body>
