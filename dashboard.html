@@ -108,6 +108,7 @@ tr:hover td { background: #fafbfc; }
 }
 .badge-aberta { background: var(--azul-claro); color: var(--azul); }
 .badge-encaminhada { background: #f0e9fb; color: #6a3fb5; }
+.badge-direcionada { background: #d1ecf1; color: #0c5460; }
 .badge-em_execucao { background: #fff8e6; color: var(--laranja); }
 .badge-aguardando_validacao { background: #fef3cd; color: #856404; }
 .badge-fechada { background: var(--verde-claro); color: var(--verde); }
@@ -199,6 +200,7 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
       <div class="mapa-legenda">
         <span><span class="leg-dot" style="background:#1a6eb4"></span> Aberta</span>
         <span><span class="leg-dot" style="background:#8a5fd0"></span> Encaminhada</span>
+        <span><span class="leg-dot" style="background:#17a2b8"></span> Direcionada</span>
         <span><span class="leg-dot" style="background:#e07b1a"></span> Em Execução</span>
         <span><span class="leg-dot" style="background:#f5a623"></span> Aguardando Validação</span>
         <span><span class="leg-dot" style="background:#2d9e65"></span> Fechada</span>
@@ -243,7 +245,7 @@ function fmtDataHora(iso) {
 }
 function labelStatus(s) {
   return {
-    aberta:'Aberta', encaminhada:'Encaminhada', em_execucao:'Em Execução',
+    aberta:'Aberta', encaminhada:'Encaminhada', direcionada:'Direcionada', em_execucao:'Em Execução',
     aguardando_validacao:'Aguardando Validação', fechada:'Fechada',
     reaberta:'Reaberta', cancelada:'Cancelada'
   }[s] || s;
@@ -269,7 +271,7 @@ function urlMapa(os) {
 }
 
 const COR_STATUS = {
-  aberta: '#1a6eb4', encaminhada: '#8a5fd0', em_execucao: '#e07b1a',
+  aberta: '#1a6eb4', encaminhada: '#8a5fd0', direcionada: '#17a2b8', em_execucao: '#e07b1a',
   aguardando_validacao: '#f5a623', fechada: '#2d9e65',
   reaberta: '#1a6eb4', cancelada: '#d32f2f',
 };
@@ -374,7 +376,7 @@ function render(ordens) {
   const total = ordens.length;
   const recorrentes = ordens.filter(o => (o.ocorrencias||1) > 1);
   document.getElementById('stTotal').textContent = total;
-  document.getElementById('stAbertas').textContent = c('aberta') + c('reaberta') + c('encaminhada');
+  document.getElementById('stAbertas').textContent = c('aberta') + c('reaberta') + c('encaminhada') + c('direcionada');
   document.getElementById('stEmExecucao').textContent = c('em_execucao');
   document.getElementById('stValidacao').textContent = c('aguardando_validacao');
   document.getElementById('stFechadas').textContent = c('fechada');

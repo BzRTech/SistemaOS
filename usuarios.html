@@ -170,6 +170,8 @@ select.input {
 
 .equipe-select { display: none; margin-top: 8px; }
 .equipe-select.visivel { display: block; }
+.empresa-select { display: none; margin-top: 8px; }
+.empresa-select.visivel { display: block; }
 </style>
 </head>
 <body>
@@ -219,6 +221,12 @@ select.input {
                 <option value="admin">Admin — acesso total</option>
               </select>
             </div>
+          </div>
+          <div class="empresa-select" id="empresaSelectNovo">
+            <label class="label" for="empresaNome">Empresa</label>
+            <select class="input" id="empresaNome">
+              <option value="Goldman">Goldman</option>
+            </select>
           </div>
           <div class="equipe-select" id="equipeSelectNovo">
             <label class="label" for="equipeNome">Equipe</label>
@@ -298,6 +306,7 @@ function limparAlerta() {
 
 const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
 const EQUIPES = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
+const EMPRESAS = ['Goldman'];
 let EU = {};
 let USUARIOS = [];
 let EDITANDO = null;
@@ -305,11 +314,16 @@ let EDITANDO = null;
 function toggleEquipeSelect(ctx) {
   if (ctx === 'novo') {
     const perfil = document.getElementById('perfil').value;
-    document.getElementById('equipeSelectNovo').classList.toggle('visivel', perfil === 'equipe');
+    const isEquipe = perfil === 'equipe';
+    document.getElementById('equipeSelectNovo').classList.toggle('visivel', isEquipe);
+    document.getElementById('empresaSelectNovo').classList.toggle('visivel', isEquipe);
   } else {
     const perfil = document.getElementById(`e-perfil-${ctx}`).value;
+    const isEquipe = perfil === 'equipe';
     const el = document.getElementById(`e-equipe-wrap-${ctx}`);
-    if (el) el.classList.toggle('visivel', perfil === 'equipe');
+    if (el) el.classList.toggle('visivel', isEquipe);
+    const empEl = document.getElementById(`e-empresa-wrap-${ctx}`);
+    if (empEl) empEl.classList.toggle('visivel', isEquipe);
   }
 }
 
@@ -354,8 +368,12 @@ function renderizar() {
   el.innerHTML = USUARIOS.map(u => {
     const souEu = u.id === EU.id;
     const equipeBadge = u.equipe_nome ? `<span class="badge badge-equipe">${esc(u.equipe_nome)}</span>` : '';
+    const empresaBadge = u.empresa ? `<span class="badge badge-goldman">${esc(u.empresa)}</span>` : '';
     const equipeOpts = EQUIPES.map(eq =>
       `<option value="${esc(eq)}" ${u.equipe_nome === eq ? 'selected' : ''}>${esc(eq)}</option>`
+    ).join('');
+    const empresaOpts = EMPRESAS.map(emp =>
+      `<option value="${esc(emp)}" ${u.empresa === emp ? 'selected' : ''}>${esc(emp)}</option>`
     ).join('');
 
     return `
@@ -367,6 +385,7 @@ function renderizar() {
           <div class="badges">
             <span class="badge badge-${esc(u.perfil)}">${esc(PERFIL_LABEL[u.perfil] || u.perfil)}</span>
             ${equipeBadge}
+            ${empresaBadge}
             <span class="badge ${u.ativo ? 'badge-ativo' : 'badge-inativo'}">${u.ativo ? 'Ativo' : 'Inativo'}</span>
             ${souEu ? '<span class="badge badge-voce">Você</span>' : ''}
           </div>
@@ -403,6 +422,12 @@ function renderizar() {
                 <option value="admin"    ${u.perfil === 'admin'    ? 'selected' : ''}>Admin</option>
               </select>
             </div>
+          </div>
+          <div class="empresa-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-empresa-wrap-${u.id}">
+            <label class="label">Empresa</label>
+            <select class="input" id="e-empresa-${u.id}">
+              ${empresaOpts}
+            </select>
           </div>
           <div class="equipe-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-equipe-wrap-${u.id}">
             <label class="label">Equipe</label>
@@ -445,6 +470,7 @@ async function criarUsuario(e) {
   const corpo = { nome, email, senha, perfil };
   if (perfil === 'equipe') {
     corpo.equipe_nome = document.getElementById('equipeNome').value;
+    corpo.empresa = document.getElementById('empresaNome').value;
   }
 
   btn.disabled = true;
@@ -459,6 +485,7 @@ async function criarUsuario(e) {
 
     document.getElementById('formNovo').reset();
     document.getElementById('equipeSelectNovo').classList.remove('visivel');
+    document.getElementById('empresaSelectNovo').classList.remove('visivel');
     alertaForm(`Usuário ${data.nome} cadastrado com sucesso.`, 'ok');
     await carregarUsuarios();
   } catch (err) {
@@ -500,6 +527,8 @@ async function salvarUsuario(id) {
   if (perfil === 'equipe') {
     const eqEl = document.getElementById(`e-equipe-${id}`);
     if (eqEl) corpo.equipe_nome = eqEl.value;
+    const empEl = document.getElementById(`e-empresa-${id}`);
+    if (empEl) corpo.empresa = empEl.value;
   }
 
   EDITANDO = null;

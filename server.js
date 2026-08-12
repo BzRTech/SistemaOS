@@ -32,7 +32,7 @@ app.use(express.static(__dirname));
 const PERFIS_VALIDOS = ['admin', 'seinfra', 'goldman', 'equipe'];
 const EMPRESAS_VALIDAS = ['Goldman'];
 const EQUIPES_VALIDAS = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
-const STATUS_VALIDOS = ['aberta', 'encaminhada', 'em_execucao', 'aguardando_validacao', 'fechada', 'reaberta'];
+const STATUS_VALIDOS = ['aberta', 'encaminhada', 'direcionada', 'em_execucao', 'aguardando_validacao', 'fechada', 'reaberta'];
 
 async function iniciarBanco() {
   await pool.query(`
@@ -258,6 +258,8 @@ async function iniciarBanco() {
 
   // Migração: adicionar coluna equipe_nome se não existir
   await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS equipe_nome TEXT`);
+  // Migração: adicionar coluna empresa para vincular equipe à empresa
+  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS empresa TEXT`);
 
   // Cria o primeiro usuário (admin) se o banco estiver vazio
   const { rows: semUsuarios } = await pool.query('SELECT id FROM usuarios LIMIT 1');
@@ -363,7 +365,7 @@ function autenticar(papeis) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
       const { rows } = await pool.query(
-        'SELECT id, nome, email, perfil, equipe_nome, ativo FROM usuarios WHERE id = $1',
+        'SELECT id, nome, email, perfil, equipe_nome, empresa, ativo FROM usuarios WHERE id = $1',
         [payload.sub]
       );
       if (!rows.length || !rows[0].ativo)
@@ -399,9 +401,11 @@ app.post('/api/auth/login', async (req, res) => {
     await pool.query('UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = $1', [u.id]);
     const payload = { sub: u.id, perfil: u.perfil };
     if (u.equipe_nome) payload.equipe_nome = u.equipe_nome;
+    if (u.empresa) payload.empresa = u.empresa;
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
     const usuario = { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil };
     if (u.equipe_nome) usuario.equipe_nome = u.equipe_nome;
+    if (u.empresa) usuario.empresa = u.empresa;
     res.json({ token, usuario });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
@@ -415,7 +419,7 @@ app.get('/api/auth/me', qualquerUsuario, (req, res) => {
 app.get('/api/auth/usuarios', somenteAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, nome, email, perfil, equipe_nome, ativo, criado_em, ultimo_acesso FROM usuarios ORDER BY criado_em'
+      'SELECT id, nome, email, perfil, equipe_nome, empresa, ativo, criado_em, ultimo_acesso FROM usuarios ORDER BY criado_em'
     );
     res.json(rows);
   } catch (e) { res.status(500).json({ erro: e.message }); }
@@ -423,7 +427,7 @@ app.get('/api/auth/usuarios', somenteAdmin, async (req, res) => {
 
 // Criar usuário (admin)
 app.post('/api/auth/usuarios', somenteAdmin, async (req, res) => {
-  const { nome, email, senha, perfil, equipe_nome } = req.body;
+  const { nome, email, senha, perfil, equipe_nome, empresa } = req.body;
   if (!nome || !email || !senha || !perfil)
     return res.status(400).json({ erro: 'Campos obrigatórios: nome, email, senha, perfil' });
   if (!PERFIS_VALIDOS.includes(perfil))
@@ -431,15 +435,18 @@ app.post('/api/auth/usuarios', somenteAdmin, async (req, res) => {
   if (perfil === 'equipe') {
     if (!equipe_nome || !EQUIPES_VALIDAS.includes(equipe_nome))
       return res.status(400).json({ erro: 'equipe_nome obrigatório para perfil equipe (Equipe 1 a Equipe 6)' });
+    if (!empresa || !EMPRESAS_VALIDAS.includes(empresa))
+      return res.status(400).json({ erro: 'empresa obrigatória para perfil equipe' });
   }
   try {
     const hash = await bcrypt.hash(String(senha), 12);
     const eqNome = perfil === 'equipe' ? equipe_nome : null;
+    const empNome = perfil === 'equipe' ? empresa : (perfil === 'goldman' ? 'Goldman' : null);
     const { rows } = await pool.query(
-      `INSERT INTO usuarios (id, nome, email, senha_hash, perfil, equipe_nome)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, nome, email, perfil, equipe_nome, ativo, criado_em`,
-      [uuidv4(), nome.trim(), String(email).toLowerCase().trim(), hash, perfil, eqNome]
+      `INSERT INTO usuarios (id, nome, email, senha_hash, perfil, equipe_nome, empresa)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, nome, email, perfil, equipe_nome, empresa, ativo, criado_em`,
+      [uuidv4(), nome.trim(), String(email).toLowerCase().trim(), hash, perfil, eqNome, empNome]
     );
     res.json(rows[0]);
   } catch (e) {
@@ -454,7 +461,7 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
   const u = req.usuario;
   if (u.perfil !== 'admin' && u.id !== id)
     return res.status(403).json({ erro: 'Sem permissão' });
-  const { nome, senha, perfil, equipe_nome, ativo } = req.body;
+  const { nome, senha, perfil, equipe_nome, empresa, ativo } = req.body;
   try {
     const campos = [], vals = [];
     if (nome)  { vals.push(nome.trim()); campos.push(`nome = $${vals.length}`); }
@@ -470,13 +477,17 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
         const eqNome = perfilFinal === 'equipe' ? (equipe_nome || null) : null;
         vals.push(eqNome); campos.push(`equipe_nome = $${vals.length}`);
       }
+      if (empresa !== undefined || perfilFinal === 'equipe' || perfilFinal === 'goldman') {
+        const empNome = perfilFinal === 'equipe' ? (empresa || null) : (perfilFinal === 'goldman' ? 'Goldman' : null);
+        vals.push(empNome); campos.push(`empresa = $${vals.length}`);
+      }
       if (ativo !== undefined) { vals.push(!!ativo); campos.push(`ativo = $${vals.length}`); }
     }
     if (!campos.length) return res.status(400).json({ erro: 'Nada para atualizar' });
     vals.push(id);
     const { rows } = await pool.query(
       `UPDATE usuarios SET ${campos.join(', ')} WHERE id = $${vals.length}
-       RETURNING id, nome, email, perfil, equipe_nome, ativo`,
+       RETURNING id, nome, email, perfil, equipe_nome, empresa, ativo`,
       vals
     );
     if (!rows.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
@@ -526,7 +537,8 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
     const params = [];
     if (req.usuario.perfil === 'equipe') {
       params.push(req.usuario.equipe_nome || '');
-      filtro = `WHERE equipe_designada = $${params.length}`;
+      params.push(req.usuario.empresa || '');
+      filtro = `WHERE equipe_designada = $${params.length - 1} AND empresa_designada = $${params.length}`;
     } else if (req.usuario.perfil === 'goldman') {
       filtro = `WHERE empresa_designada = 'Goldman'`;
     }
@@ -719,7 +731,38 @@ app.delete('/api/ordens/:id', adminOuSeinfra, async (req, res) => {
 
 // ─── Workflow Endpoints ───────────────────────────────────────────────────────
 
-// Encaminhar OS para uma equipe (goldman, admin)
+// Direcionar OS para uma empresa (seinfra, admin) → status = encaminhada
+app.post('/api/ordens/:id/direcionar', adminOuSeinfra, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { empresa } = req.body;
+    if (!empresa || !EMPRESAS_VALIDAS.includes(empresa))
+      return res.status(400).json({ erro: 'Empresa inválida' });
+
+    const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
+    if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
+
+    const os = atual[0];
+    const historico = parseHistorico(os.historico);
+    historico.push({
+      status: 'encaminhada',
+      data: new Date().toISOString(),
+      obs: `Direcionada para empresa ${empresa} por ${req.usuario.nome}`,
+      usuario: req.usuario.id,
+    });
+
+    const { rows } = await pool.query(
+      `UPDATE ordens_servico SET
+         empresa_designada = $1, status = 'encaminhada',
+         historico = $2, atualizado_em = NOW()
+       WHERE id = $3 RETURNING *`,
+      [empresa, JSON.stringify(historico), id]
+    );
+    res.json(mapRow(rows[0], true));
+  } catch (e) { console.error('POST direcionar:', e.message); res.status(500).json({ erro: e.message }); }
+});
+
+// Encaminhar OS para uma equipe (goldman, admin) → status = direcionada
 app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
   try {
     const { id } = req.params;
@@ -733,15 +776,15 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
     const os = atual[0];
     const historico = parseHistorico(os.historico);
     historico.push({
-      status: 'encaminhada',
+      status: 'direcionada',
       data: new Date().toISOString(),
-      obs: `Encaminhada para ${equipe} por ${req.usuario.nome}`,
+      obs: `Direcionada para ${equipe} por ${req.usuario.nome}`,
       usuario: req.usuario.id,
     });
 
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
-         equipe_designada = $1, status = 'encaminhada',
+         equipe_designada = $1, status = 'direcionada',
          historico = $2, atualizado_em = NOW()
        WHERE id = $3 RETURNING *`,
       [equipe, JSON.stringify(historico), id]
