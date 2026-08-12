@@ -350,7 +350,7 @@ function mapRow(r, incluirFotos) {
     validadoEm: r.validado_em || null,
     motivoRejeicao: r.motivo_rejeicao || null,
     dataSolicitacao: r.data_solicitacao || null,
-    fotosPdf: incluirFotos ? (r.fotos_pdf || null) : undefined,
+    fotosPdf: incluirFotos ? parseFotos(r.fotos_pdf) : undefined,
   };
 }
 
@@ -563,7 +563,7 @@ const COLUNAS_INSERT = `
   id, numero, tipo, descricao, endereco, bairro, referencia,
   solicitante, responsavel, equipe, prioridade, prazo, status,
   ocorrencias, primeira_ocorrencia, tag, foto_abertura, historico, criado_em, data_solicitacao,
-  empresa_designada, equipe_designada`;
+  empresa_designada, equipe_designada, fotos_pdf`;
 
 function valoresInsert(o, numero, criadoEm) {
   const data = criadoEm || new Date().toISOString();
@@ -582,6 +582,7 @@ function valoresInsert(o, numero, criadoEm) {
     o.dataSolicitacao || o.data_solicitacao || null,
     o.empresaDesignada || o.empresa_designada || null,
     o.equipeDesignada || o.equipe_designada || null,
+    serializarFotos(o.fotosPdf || o.fotos_pdf),
   ];
 }
 

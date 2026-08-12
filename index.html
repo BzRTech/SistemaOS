@@ -667,6 +667,12 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
     <div id="previewFotoAbertura"></div>
   </div>
 
+  <div class="form-card" id="cardFotosPdf" style="display:none">
+    <div class="form-card-title">📄 Fotos do Documento/Protocolo <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(importadas do PDF)</span></div>
+    <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:12px">Estas fotos são anexos do protocolo importado, não fotos de serviço.</p>
+    <div id="previewFotosPdf"></div>
+  </div>
+
   <button class="btn btn-primary" onclick="salvarNovaOS()" id="btnSalvarNova" style="margin-bottom:24px">
     ✅ Abrir Ordem de Serviço
   </button>
@@ -931,6 +937,7 @@ const S = {
   tagFiltro: 'todos',
   busca: '',
   fotosAbertura: [],    // base64[] (novas O.S. aceitam várias fotos)
+  fotosPdf: [],         // base64[] (fotos das páginas do PDF importado — anexos do documento)
   fotoConclusaoModal: null,
   osAberta: null,       // OS carregada no modal
   editandoInfo: false,  // modo de edição da seção Informações
@@ -1104,6 +1111,17 @@ function verFotoNova(i) { if (S.fotosAbertura[i]) verFoto(S.fotosAbertura[i]); }
 function removerFotoNova(i) {
   S.fotosAbertura.splice(i, 1);
   renderGridFotos('previewFotoAbertura', S.fotosAbertura, 'removerFotoNova', 'verFotoNova');
+}
+
+function removerFotoPdf(i) {
+  S.fotosPdf.splice(i, 1);
+  renderGridFotos('previewFotosPdf', S.fotosPdf, 'removerFotoPdf', 'verFotoPdf');
+  const card = document.getElementById('cardFotosPdf');
+  if (card) card.style.display = S.fotosPdf.length ? '' : 'none';
+}
+
+function verFotoPdf(i) {
+  if (S.fotosPdf[i]) verFoto(S.fotosPdf[i]);
 }
 
 function verFotoAbertura(i) {
@@ -1305,6 +1323,7 @@ async function salvarNovaOS() {
     prazo: v('novaPrazo') || null,
     tag: v('novaTag'),
     fotoAbertura: S.fotosAbertura,
+    fotosPdf: S.fotosPdf,
     empresaDesignada: empresaSel || null,
     equipeDesignada: equipeSel || null,
   };
@@ -1339,7 +1358,10 @@ function limparFormNova() {
   const eqSel = document.getElementById('novaEquipeDesignada');
   if (eqSel) eqSel.disabled = true;
   S.fotosAbertura = [];
+  S.fotosPdf = [];
   document.getElementById('previewFotoAbertura').innerHTML = '';
+  const pdfPreview = document.getElementById('previewFotosPdf');
+  if (pdfPreview) pdfPreview.innerHTML = '';
   document.getElementById('alertNova').innerHTML = '';
 }
 
@@ -1398,13 +1420,13 @@ async function importarProtocoloPDF(input) {
 
     // Extrai fotos das páginas 2+ do PDF via pdf.js
     let fotosExtraidas = 0;
-    if (window.pdfjsLib && S.fotosAbertura.length < MAX_FOTOS_ABERTURA) {
+    if (window.pdfjsLib && S.fotosPdf.length < MAX_FOTOS_ABERTURA) {
       try {
         pdfjsLib.GlobalWorkerOptions.workerSrc =
           'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         const pdfDoc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
         const MAX_W  = 900;
-        for (let pg = 2; pg <= pdfDoc.numPages && S.fotosAbertura.length < MAX_FOTOS_ABERTURA; pg++) {
+        for (let pg = 2; pg <= pdfDoc.numPages && S.fotosPdf.length < MAX_FOTOS_ABERTURA; pg++) {
           const page   = await pdfDoc.getPage(pg);
           const vpNat  = page.getViewport({ scale: 1 });
           const scale  = Math.min(1.5, MAX_W / vpNat.width);
@@ -1413,11 +1435,14 @@ async function importarProtocoloPDF(input) {
           canvas.width  = Math.round(vp.width);
           canvas.height = Math.round(vp.height);
           await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-          S.fotosAbertura.push(canvas.toDataURL('image/jpeg', 0.78));
+          S.fotosPdf.push(canvas.toDataURL('image/jpeg', 0.78));
           fotosExtraidas++;
         }
-        if (fotosExtraidas > 0)
-          renderGridFotos('previewFotoAbertura', S.fotosAbertura, 'removerFotoNova', 'verFotoNova');
+        if (fotosExtraidas > 0) {
+          renderGridFotos('previewFotosPdf', S.fotosPdf, 'removerFotoPdf', 'verFotoPdf');
+          const card = document.getElementById('cardFotosPdf');
+          if (card) card.style.display = '';
+        }
       } catch (eImg) {
         console.warn('Extração de fotos do PDF:', eImg.message);
       }
@@ -1465,100 +1490,39 @@ async function abrirDetalhes(id) {
   const finalizada = os.status === 'fechada' || os.status === 'cancelada';
   const conclusaoLiberada = !finalizada && !['aberta','encaminhada'].includes(os.status);
 
+  const pdfFotos = (() => {
+    if (!os.fotosPdf) return [];
+    if (typeof os.fotosPdf === 'string') {
+      try { const a = JSON.parse(os.fotosPdf); return Array.isArray(a) ? a : [os.fotosPdf]; }
+      catch { return [os.fotosPdf]; }
+    }
+    return Array.isArray(os.fotosPdf) ? os.fotosPdf : [];
+  })();
+
   document.getElementById('modalCorpo').innerHTML = `
-    <!-- INFO -->
-    <div class="form-card">
-      <div id="cardInfo">${renderInfoCard(os)}</div>
-      ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
-      <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
-    </div>
-
-    <!-- FOTOS ABERTURA -->
-    <div class="form-card">
-      <div class="form-card-title">📷 Fotos de Abertura${(os.fotosAbertura||[]).length ? ` <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${os.fotosAbertura.length})</span>` : ''}</div>
-      ${(os.fotosAbertura||[]).length
-        ? `<div class="fotos-grid" style="margin-top:0">${os.fotosAbertura.map((f, i) => `
-            <div class="foto-thumb">
-              <img src="${f}" onclick="verFotoAbertura(${i})" alt="Foto abertura ${i + 1}">
-              ${!finalizada ? `<button class="foto-remove-btn" onclick="removerFotoAbertura(${i})">✕</button>` : ''}
-            </div>`).join('')}</div>`
-        : `<div style="text-align:center;padding:24px;color:var(--cinza-texto)">
-            <div style="font-size:36px;margin-bottom:8px">📷</div>
-            <p style="font-size:13px">Nenhuma foto de abertura registrada.</p>
-           </div>`}
-      ${!finalizada ? `
-        <div class="foto-botoes">
-          <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaCam').click()">
-            <input type="file" id="inputAddAberturaCam" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
-            <div class="foto-upload-text">📷 Tirar foto</div>
-          </div>
-          <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaGal').click()">
-            <input type="file" id="inputAddAberturaGal" accept="image/*" multiple style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
-            <div class="foto-upload-text">🖼️ Da galeria</div>
-          </div>
-        </div>` : ''}
-    </div>
-
-    <!-- FOTO CONCLUSÃO -->
-    <div class="form-card">
-      <div class="form-card-title">📸 Foto de Conclusão</div>
-      ${os.fotoConclusao
-        ? `<div style="position:relative">
-            <img src="${os.fotoConclusao}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:260px;object-fit:cover" onclick="verFoto('${os.fotoConclusao}')" alt="Foto conclusão">
-            ${conclusaoLiberada ? `<button class="foto-remove-btn" onclick="removerFotoConclusao()" title="Excluir foto de conclusão">✕</button>` : ''}
-           </div>`
-        : `<div style="text-align:center;padding:24px;color:var(--cinza-texto)">
-            <div style="font-size:36px;margin-bottom:8px">📸</div>
-            <p style="font-size:13px">Nenhuma foto de conclusão ainda.</p>
-           </div>`}
-      ${finalizada ? '' : (conclusaoLiberada ? `
-        <div style="font-size:12px;color:var(--cinza-texto);text-align:center;margin-top:8px">${os.fotoConclusao ? '🔄 Substituir foto de conclusão:' : 'Adicionar foto de conclusão / depois:'}</div>
-        <div class="foto-botoes" style="margin-top:6px">
-          <div class="foto-upload-area" onclick="document.getElementById('inputAddConclusaoCam').click()">
-            <input type="file" id="inputAddConclusaoCam" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'conclusao')">
-            <div class="foto-upload-text">📷 Tirar foto</div>
-          </div>
-          <div class="foto-upload-area" onclick="document.getElementById('inputAddConclusaoGal').click()">
-            <input type="file" id="inputAddConclusaoGal" accept="image/*" style="display:none" onchange="adicionarFotoNaOS(this,'conclusao')">
-            <div class="foto-upload-text">🖼️ Da galeria</div>
-          </div>
-        </div>
-        <div id="previewFotoConclusaoModal"></div>` : `
-        <div style="display:flex;align-items:center;gap:8px;justify-content:center;text-align:center;margin-top:10px;padding:14px;background:var(--cinza-fundo,#f4f5f7);border:1px dashed var(--cinza-borda);border-radius:var(--radius-sm);color:var(--cinza-texto);font-size:13px">
-          🔒 Disponível somente após o buraco ser validado.
-        </div>`)}
-    </div>
-
-    <!-- OBS -->
-    ${!finalizada ? `
-    <div class="form-card">
-      <div class="form-card-title">📝 Registrar Observação</div>
-      <textarea class="form-input" id="novaObs" rows="3" placeholder="Observação ou atualização..."></textarea>
-      <button class="btn btn-secondary" style="margin-top:8px" onclick="adicionarObs()">📝 Salvar Observação</button>
-    </div>` : ''}
-
-    <!-- HISTÓRICO -->
-    <div class="form-card">
-      <div class="form-card-title">🕐 Histórico</div>
-      <div class="timeline">
-        ${(os.historico||[]).slice().reverse().map(h => `
-          <div class="timeline-item">
-            <div class="timeline-dot" style="background:${corStatus(h.status)}">${iconStatus(h.status)}</div>
-            <div class="timeline-body">
-              <div class="timeline-title">${labelStatus(h.status)}</div>
-              <div class="timeline-time">${fmtDataHora(h.data)}</div>
-              ${h.obs?`<div class="timeline-obs">${h.obs}</div>`:''}
-            </div>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    <!-- AÇÕES DE WORKFLOW POR PERFIL -->
+    <!-- AÇÕES DE WORKFLOW (TOPO - para campo) -->
     ${(() => {
       const usuario = getUsuario();
       let acoesHtml = '';
 
-      // SEINFRA/Admin: direcionar OS para empresa
+      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'encaminhada') {
+        acoesHtml += `
+          <div class="form-card" style="border:3px solid var(--laranja,#e07b1a);background:rgba(245,166,35,0.1);padding:20px">
+            <div class="form-card-title" style="color:var(--laranja,#e07b1a);font-size:18px;text-align:center">📷 REGISTRAR INÍCIO DO SERVIÇO</div>
+            <p style="font-size:13px;color:var(--cinza-texto);margin-bottom:14px;text-align:center">Tire uma foto do local para iniciar o serviço. GPS e data/hora serão capturados automaticamente.</p>
+            <button class="btn btn-primary" style="width:100%;padding:16px 20px;font-size:16px;background:var(--laranja,#e07b1a);border-color:var(--laranja,#e07b1a);font-weight:700" onclick="registrarFotoServico('${os.id}','inicio')">📷 TIRAR FOTO E INICIAR SERVIÇO</button>
+          </div>`;
+      }
+
+      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'em_execucao') {
+        acoesHtml += `
+          <div class="form-card" style="border:3px solid var(--verde-medio,#2d9e65);background:rgba(45,158,101,0.1);padding:20px">
+            <div class="form-card-title" style="color:var(--verde-medio,#2d9e65);font-size:18px;text-align:center">📷 REGISTRAR CONCLUSÃO</div>
+            <p style="font-size:13px;color:var(--cinza-texto);margin-bottom:14px;text-align:center">Tire uma foto do serviço concluído. GPS e data/hora serão capturados automaticamente.</p>
+            <button class="btn btn-primary" style="width:100%;padding:16px 20px;font-size:16px;background:var(--verde-medio,#2d9e65);border-color:var(--verde-escuro,#1a6e45);font-weight:700" onclick="registrarFotoServico('${os.id}','fim')">📷 TIRAR FOTO E CONCLUIR</button>
+          </div>`;
+      }
+
       if ((usuario.perfil === 'seinfra' || usuario.perfil === 'admin') && (os.status === 'aberta' || os.status === 'reaberta') && !os.empresaDesignada) {
         acoesHtml += `
           <div class="form-card" style="border:2px solid var(--azul);background:rgba(29,78,216,0.06)">
@@ -1585,24 +1549,6 @@ async function abrirDetalhes(id) {
           </div>`;
       }
 
-      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'encaminhada') {
-        acoesHtml += `
-          <div class="form-card" style="border:2px solid var(--amarelo);background:rgba(245,166,35,0.06)">
-            <div class="form-card-title" style="color:var(--laranja)">📷 Registrar Início do Serviço</div>
-            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Tire uma foto do local. GPS e data/hora serão extraídos automaticamente.</p>
-            <button class="btn btn-primary" style="background:var(--laranja);border-color:var(--laranja)" onclick="registrarFotoServico('${os.id}','inicio')">📷 Tirar Foto de Início</button>
-          </div>`;
-      }
-
-      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'em_execucao') {
-        acoesHtml += `
-          <div class="form-card" style="border:2px solid var(--verde-medio);background:rgba(45,158,101,0.06)">
-            <div class="form-card-title" style="color:var(--verde-medio)">📷 Registrar Conclusão do Serviço</div>
-            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Tire uma foto do serviço concluído. GPS e data/hora serão extraídos automaticamente.</p>
-            <button class="btn btn-primary" style="background:var(--verde-medio);border-color:var(--verde-escuro)" onclick="registrarFotoServico('${os.id}','fim')">📷 Tirar Foto de Conclusão</button>
-          </div>`;
-      }
-
       if ((usuario.perfil === 'seinfra' || usuario.perfil === 'admin') && os.status === 'aguardando_validacao') {
         acoesHtml += `
           <div class="form-card" style="border:2px solid var(--verde);background:rgba(26,110,69,0.06)">
@@ -1617,6 +1563,100 @@ async function abrirDetalhes(id) {
 
       return acoesHtml;
     })()}
+
+    <!-- INFO -->
+    <div class="form-card">
+      <div id="cardInfo">${renderInfoCard(os)}</div>
+      ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
+    </div>
+
+    <!-- FOTO DE INÍCIO DO SERVIÇO -->
+    ${os.fotoInicio ? `
+    <div class="form-card" style="border-left:4px solid var(--laranja,#e07b1a)">
+      <div class="form-card-title">📷 Foto de Início do Serviço</div>
+      <div style="position:relative">
+        <img src="${os.fotoInicio}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:300px;object-fit:cover" onclick="verFoto('${os.fotoInicio}')" alt="Foto início">
+      </div>
+      <div style="display:flex;gap:12px;margin-top:8px;font-size:12px;color:var(--cinza-texto)">
+        ${os.gpsInicio ? `<span>📍 GPS: ${os.gpsInicio}</span>` : ''}
+        ${os.dataInicioServico ? `<span>📅 ${fmtDataHora(os.dataInicioServico)}</span>` : ''}
+      </div>
+      ${os.gpsInicio ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsInicio)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+    </div>` : ''}
+
+    <!-- FOTO DE CONCLUSÃO DO SERVIÇO -->
+    ${os.fotoFim ? `
+    <div class="form-card" style="border-left:4px solid var(--verde-medio,#2d9e65)">
+      <div class="form-card-title">📸 Foto de Conclusão do Serviço</div>
+      <div style="position:relative">
+        <img src="${os.fotoFim}" style="width:100%;border-radius:var(--radius-sm);cursor:pointer;max-height:300px;object-fit:cover" onclick="verFoto('${os.fotoFim}')" alt="Foto conclusão">
+      </div>
+      <div style="display:flex;gap:12px;margin-top:8px;font-size:12px;color:var(--cinza-texto)">
+        ${os.gpsFim ? `<span>📍 GPS: ${os.gpsFim}</span>` : ''}
+        ${os.dataFimServico ? `<span>📅 ${fmtDataHora(os.dataFimServico)}</span>` : ''}
+      </div>
+      ${os.gpsFim ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsFim)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+    </div>` : ''}
+
+    <!-- FOTOS DO PROTOCOLO/DOCUMENTO (importadas do PDF) -->
+    ${pdfFotos.length ? `
+    <div class="form-card">
+      <div class="form-card-title">📄 Fotos do Protocolo/Documento <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${pdfFotos.length})</span></div>
+      <div class="fotos-grid" style="margin-top:0">${pdfFotos.map((f, i) => `
+        <div class="foto-thumb">
+          <img src="${f}" onclick="verFoto('${f}')" alt="Documento ${i + 1}">
+        </div>`).join('')}</div>
+    </div>` : ''}
+
+    <!-- FOTOS DE ABERTURA (manuais) -->
+    ${(os.fotosAbertura||[]).length ? `
+    <div class="form-card">
+      <div class="form-card-title">📷 Fotos Anexas <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${os.fotosAbertura.length})</span></div>
+      <div class="fotos-grid" style="margin-top:0">${os.fotosAbertura.map((f, i) => `
+        <div class="foto-thumb">
+          <img src="${f}" onclick="verFotoAbertura(${i})" alt="Foto ${i + 1}">
+          ${!finalizada ? `<button class="foto-remove-btn" onclick="removerFotoAbertura(${i})">✕</button>` : ''}
+        </div>`).join('')}</div>
+    </div>` : ''}
+    ${!finalizada ? `
+    <div class="form-card">
+      <div class="form-card-title">📷 Adicionar Fotos</div>
+      <div class="foto-botoes">
+        <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaCam').click()">
+          <input type="file" id="inputAddAberturaCam" accept="image/*" capture="environment" style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
+          <div class="foto-upload-text">📷 Tirar foto</div>
+        </div>
+        <div class="foto-upload-area" onclick="document.getElementById('inputAddAberturaGal').click()">
+          <input type="file" id="inputAddAberturaGal" accept="image/*" multiple style="display:none" onchange="adicionarFotoNaOS(this,'abertura')">
+          <div class="foto-upload-text">🖼️ Da galeria</div>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <!-- OBS -->
+    ${!finalizada ? `
+    <div class="form-card">
+      <div class="form-card-title">📝 Registrar Observação</div>
+      <textarea class="form-input" id="novaObs" rows="3" placeholder="Observação ou atualização..."></textarea>
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="adicionarObs()">📝 Salvar Observação</button>
+    </div>` : ''}
+
+    <!-- HISTÓRICO -->
+    <div class="form-card">
+      <div class="form-card-title">🕐 Histórico</div>
+      <div class="timeline">
+        ${(os.historico||[]).slice().reverse().map(h => `
+          <div class="timeline-item">
+            <div class="timeline-dot" style="background:${corStatus(h.status)}">${iconStatus(h.status)}</div>
+            <div class="timeline-body">
+              <div class="timeline-title">${labelStatus(h.status)}</div>
+              <div class="timeline-time">${fmtDataHora(h.data)}</div>
+              ${h.obs?`<div class="timeline-obs">${h.obs}</div>`:''}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
 
     <!-- STATUS -->
     ${finalizada ? `
