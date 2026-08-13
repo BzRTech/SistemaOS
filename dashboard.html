@@ -205,7 +205,7 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
         <span><span class="leg-dot" style="background:#f5a623"></span> Aguardando Validação</span>
         <span><span class="leg-dot" style="background:#2d9e65"></span> Fechada</span>
         <span><span class="leg-dot" style="background:#d32f2f"></span> Cancelada</span>
-        <span><span class="leg-dot" style="background:#17a2b8"></span> 📍 GPS do Serviço</span>
+        <span><span class="leg-dot" style="background:#17a2b8"></span> 📍 GPS da Foto de Início</span>
         <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente</span>
       </div>
     </div>
@@ -279,7 +279,7 @@ const COR_STATUS = {
 let mapa = null, camadaPontos = null;
 function renderMapa(ordens) {
   const comCoord = ordens.map(o => ({ o, c: coordsDe(o) })).filter(x => x.c);
-  const gpsCount = ordens.filter(o => gpsDe(o.gpsInicio) || gpsDe(o.gpsFim)).length;
+  const gpsCount = ordens.filter(o => gpsDe(o.gpsInicio)).length;
   const totalPontos = comCoord.length + gpsCount;
   document.getElementById('mapaContador').textContent =
     totalPontos ? `· ${totalPontos} ponto(s)` : '';
@@ -325,21 +325,15 @@ function renderMapa(ordens) {
     pontos.push(c);
   }
 
-  // Plota pontos GPS capturados nas fotos de serviço (início e fim)
+  // Plota o ponto GPS capturado na foto de INÍCIO do serviço.
+  // (a foto de conclusão é praticamente o mesmo local — não plotamos)
   for (const o of ordens) {
     const gpsI = gpsDe(o.gpsInicio);
-    const gpsF = gpsDe(o.gpsFim);
     if (gpsI) {
       const icon = L.divIcon({ className: '', html: '<div class="mkr" style="background:#17a2b8;border-color:#fff"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
       const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início</div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
       L.marker(gpsI, { icon }).bindPopup(popup).addTo(camadaPontos);
       pontos.push(gpsI);
-    }
-    if (gpsF) {
-      const icon = L.divIcon({ className: '', html: '<div class="mkr" style="background:#17a2b8;border-color:#fff"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
-      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📸 Foto de Conclusão</div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsF[0].toFixed(6)}, ${gpsF[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsF[0]},${gpsF[1]}" target="_blank">🗺️ Google Maps</a>`;
-      L.marker(gpsF, { icon }).bindPopup(popup).addTo(camadaPontos);
-      pontos.push(gpsF);
     }
   }
 
