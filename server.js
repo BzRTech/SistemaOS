@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const https = require('https');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
@@ -30,7 +29,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
 
 const PERFIS_VALIDOS = ['admin', 'seinfra', 'goldman', 'equipe'];
-const EMPRESAS_VALIDAS = ['Goldman'];
+// Empresas são dinâmicas (cadastradas via usuários goldman). Equipes são os 6 slots por empresa.
 const EQUIPES_VALIDAS = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
 const STATUS_VALIDOS = ['aberta', 'encaminhada', 'direcionada', 'em_execucao', 'aguardando_validacao', 'fechada', 'reaberta'];
 
@@ -175,24 +174,6 @@ async function iniciarBanco() {
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_status ON ordens_servico (status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_os_criado_em ON ordens_servico (criado_em DESC)`);
-
-  // Buracos do Waze (BigQuery) persistidos no Neon: acumula histórico além
-  // da janela de 7 dias do BigQuery. Chave natural = coordenada + data.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS waze_buracos (
-      coordenadas     TEXT NOT NULL,
-      data            DATE NOT NULL,
-      lat             DOUBLE PRECISION,
-      lon             DOUBLE PRECISION,
-      rua             TEXT,
-      relatos         INTEGER DEFAULT 0,
-      confirmacoes    INTEGER DEFAULT 0,
-      score           INTEGER DEFAULT 0,
-      sincronizado_em TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (coordenadas, data)
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_waze_data ON waze_buracos (data DESC)`);
 
   // ── Tabela de usuários ─────────────────────────────────────────────────────
   await pool.query(`
@@ -435,13 +416,15 @@ app.post('/api/auth/usuarios', somenteAdmin, async (req, res) => {
   if (perfil === 'equipe') {
     if (!equipe_nome || !EQUIPES_VALIDAS.includes(equipe_nome))
       return res.status(400).json({ erro: 'equipe_nome obrigatório para perfil equipe (Equipe 1 a Equipe 6)' });
-    if (!empresa || !EMPRESAS_VALIDAS.includes(empresa))
+    if (!empresa || !String(empresa).trim())
       return res.status(400).json({ erro: 'empresa obrigatória para perfil equipe' });
   }
+  if (perfil === 'goldman' && (!empresa || !String(empresa).trim()))
+    return res.status(400).json({ erro: 'empresa (nome da empresa) obrigatória para perfil goldman' });
   try {
     const hash = await bcrypt.hash(String(senha), 12);
     const eqNome = perfil === 'equipe' ? equipe_nome : null;
-    const empNome = perfil === 'equipe' ? empresa : (perfil === 'goldman' ? 'Goldman' : null);
+    const empNome = (perfil === 'equipe' || perfil === 'goldman') ? String(empresa).trim() : null;
     const { rows } = await pool.query(
       `INSERT INTO usuarios (id, nome, email, senha_hash, perfil, equipe_nome, empresa)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -478,7 +461,8 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
         vals.push(eqNome); campos.push(`equipe_nome = $${vals.length}`);
       }
       if (empresa !== undefined || perfilFinal === 'equipe' || perfilFinal === 'goldman') {
-        const empNome = perfilFinal === 'equipe' ? (empresa || null) : (perfilFinal === 'goldman' ? 'Goldman' : null);
+        const empNome = (perfilFinal === 'equipe' || perfilFinal === 'goldman')
+          ? (empresa ? String(empresa).trim() : null) : null;
         vals.push(empNome); campos.push(`empresa = $${vals.length}`);
       }
       if (ativo !== undefined) { vals.push(!!ativo); campos.push(`ativo = $${vals.length}`); }
@@ -540,7 +524,8 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
       params.push(req.usuario.empresa || '');
       filtro = `WHERE equipe_designada = $${params.length - 1} AND empresa_designada = $${params.length}`;
     } else if (req.usuario.perfil === 'goldman') {
-      filtro = `WHERE empresa_designada = 'Goldman'`;
+      params.push(req.usuario.empresa || '');
+      filtro = `WHERE empresa_designada = $${params.length}`;
     }
 
     const { rows } = await pool.query(`
@@ -736,8 +721,14 @@ app.post('/api/ordens/:id/direcionar', adminOuSeinfra, async (req, res) => {
   try {
     const { id } = req.params;
     const { empresa } = req.body;
-    if (!empresa || !EMPRESAS_VALIDAS.includes(empresa))
+    if (!empresa || !String(empresa).trim())
       return res.status(400).json({ erro: 'Empresa inválida' });
+    // Valida contra as empresas realmente cadastradas
+    const { rows: empRows } = await pool.query(
+      `SELECT 1 FROM usuarios WHERE empresa = $1 AND ativo = true LIMIT 1`, [empresa]
+    );
+    if (!empRows.length)
+      return res.status(400).json({ erro: 'Empresa não cadastrada no sistema' });
 
     const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
@@ -774,6 +765,17 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
 
     const os = atual[0];
+    // Goldman só encaminha OS da própria empresa e para equipes cadastradas nela
+    const empresaOS = os.empresa_designada;
+    if (req.usuario.perfil === 'goldman' && req.usuario.empresa && empresaOS && req.usuario.empresa !== empresaOS)
+      return res.status(403).json({ erro: 'Esta OS pertence a outra empresa' });
+    const { rows: eqRows } = await pool.query(
+      `SELECT 1 FROM usuarios WHERE perfil = 'equipe' AND equipe_nome = $1 AND empresa = $2 AND ativo = true LIMIT 1`,
+      [equipe, empresaOS]
+    );
+    if (!eqRows.length)
+      return res.status(400).json({ erro: `${equipe} não está cadastrada para a empresa ${empresaOS || '(indefinida)'}` });
+
     const historico = parseHistorico(os.historico);
     historico.push({
       status: 'direcionada',
@@ -910,266 +912,43 @@ app.post('/api/ordens/:id/validar', adminOuSeinfra, async (req, res) => {
   } catch (e) { console.error('POST validar:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// ─── Waze / BigQuery ──────────────────────────────────────────────────────────
-// Configure via env vars: WAZE_BQ_PROJECT, WAZE_BQ_DATASET, WAZE_BQ_TABLE, WAZE_BQ_LOCATION
-const BQ_PROJECT  = process.env.WAZE_BQ_PROJECT  || 'testes-waze';
-const BQ_DATASET  = process.env.WAZE_BQ_DATASET  || '';
-const BQ_TABLE    = process.env.WAZE_BQ_TABLE    || '';
-const BQ_LOCATION = process.env.WAZE_BQ_LOCATION || 'US';
-
-// Token OAuth (expira a cada ~1h; renovar via POST /api/waze/token)
-let wazeToken = process.env.WAZE_TOKEN || '';
-
-function bqQuery(sql, params) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      query: sql,
-      useLegacySql: false,
-      timeoutMs: 30000,
-      location: BQ_LOCATION,
-      queryParameters: params || [],
-    });
-    const req = https.request({
-      hostname: 'bigquery.googleapis.com',
-      path: `/bigquery/v2/projects/${BQ_PROJECT}/queries`,
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${wazeToken}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      let d = '';
-      res.on('data', chunk => d += chunk);
-      res.on('end', () => {
-        try { resolve({ httpStatus: res.statusCode, data: JSON.parse(d) }); }
-        catch { reject(new Error('Resposta inválida do BigQuery')); }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-// Busca TODOS os buracos do BigQuery e faz upsert no Neon. Acumula histórico:
-// dias novos são inseridos, dias já existentes têm os números atualizados.
-async function sincronizarBuracos() {
-  if (!BQ_DATASET || !BQ_TABLE) {
-    throw new Error('Tabela BigQuery não configurada. Defina WAZE_BQ_DATASET e WAZE_BQ_TABLE nas variáveis de ambiente.');
-  }
-
-  const sql = `
-    SELECT clmn1_ AS coordenadas, clmn2_ AS data,
-           COALESCE(clmn4_, '') AS rua,
-           CAST(t0_qt_fvgeseri4d AS INT64) AS relatos,
-           CAST(t0_qt_jtzijkri4d AS INT64) AS confirmacoes,
-           CAST(clmn0_           AS INT64) AS score
-    FROM \`${BQ_PROJECT}.${BQ_DATASET}.${BQ_TABLE}\`
-    WHERE clmn1_ IS NOT NULL AND clmn2_ IS NOT NULL
-    ORDER BY clmn2_ DESC
-    LIMIT 50000`;
-
-  const { data } = await bqQuery(sql, []);
-  if (data.error) {
-    const e = new Error(data.error.message || 'Erro no BigQuery');
-    e.code = data.error.code;
-    throw e;
-  }
-
-  const cols = (data.schema?.fields || []).map(f => f.name);
-  const linhas = (data.rows || []).map(row => {
-    const v = Object.fromEntries(cols.map((c, i) => [c, row.f[i].v]));
-    const parts = v.coordenadas ? String(v.coordenadas).split(',') : [];
-    const lat = parseFloat(parts[0]), lon = parseFloat(parts[1]);
-    return {
-      coordenadas:  v.coordenadas || '',
-      data:         v.data || null,
-      lat:          isNaN(lat) ? null : lat,
-      lon:          isNaN(lon) ? null : lon,
-      rua:          v.rua || '',
-      relatos:      parseInt(v.relatos)      || 0,
-      confirmacoes: parseInt(v.confirmacoes) || 0,
-      score:        parseInt(v.score)        || 0,
-    };
-  }).filter(l => l.coordenadas && l.data);
-
-  let gravados = 0;
-  const client = await pool.connect();
+// ─── Empresas e Equipes cadastradas ────────────────────────────────────────────
+// Deriva as empresas e equipes a partir dos usuários cadastrados, para que os
+// selects de direcionamento/encaminhamento reflitam o cadastro real.
+app.get('/api/empresas', qualquerUsuario, async (req, res) => {
   try {
-    await client.query('BEGIN');
-    for (let i = 0; i < linhas.length; i += 500) {
-      const lote = linhas.slice(i, i + 500);
-      const vals = [];
-      const ph = lote.map((l, k) => {
-        const b = k * 8;
-        vals.push(l.coordenadas, l.data, l.lat, l.lon, l.rua, l.relatos, l.confirmacoes, l.score);
-        return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`;
-      }).join(',');
-      await client.query(`
-        INSERT INTO waze_buracos (coordenadas, data, lat, lon, rua, relatos, confirmacoes, score)
-        VALUES ${ph}
-        ON CONFLICT (coordenadas, data) DO UPDATE SET
-          lat = EXCLUDED.lat, lon = EXCLUDED.lon, rua = EXCLUDED.rua,
-          relatos = EXCLUDED.relatos, confirmacoes = EXCLUDED.confirmacoes,
-          score = EXCLUDED.score, sincronizado_em = NOW()
-      `, vals);
-      gravados += lote.length;
-    }
-    await client.query('COMMIT');
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
-  }
-
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS total FROM waze_buracos');
-  return { gravados, totalBanco: rows[0].total, sincronizadoEm: new Date().toISOString() };
-}
-
-// Recebe o token, sincroniza o BigQuery → Neon e devolve o resultado.
-// O token é usado apenas para esta sincronização; os dados ficam no banco.
-app.post('/api/waze/token', qualquerUsuario, async (req, res) => {
-  const { token } = req.body;
-  if (!token || !String(token).trim())
-    return res.status(400).json({ erro: 'Token obrigatório' });
-  wazeToken = String(token).trim();
-  console.log('Waze token atualizado em', new Date().toISOString());
-
-  try {
-    const r = await sincronizarBuracos();
-    console.log(`Waze: ${r.gravados} registros sincronizados (${r.totalBanco} no banco)`);
-    res.json({ ok: true, ...r });
-  } catch (e) {
-    console.error('Sincronização Waze falhou:', e.message);
-    if (e.code === 401 || e.code === 403)
-      return res.status(401).json({ erro: 'Token inválido ou expirado', tokenExpirado: true });
-    res.status(500).json({ erro: 'Token salvo, mas a sincronização falhou: ' + e.message });
-  }
-});
-
-// Retorna a configuração BigQuery atual (sem expor o token).
-app.get('/api/waze/config', qualquerUsuario, (req, res) => {
-  res.json({
-    projeto:  BQ_PROJECT,
-    dataset:  BQ_DATASET  || null,
-    tabela:   BQ_TABLE    || null,
-    location: BQ_LOCATION,
-    configurado: !!(BQ_DATASET && BQ_TABLE),
-  });
-});
-
-// Explora o BigQuery com um token para listar projetos → datasets → tabelas.
-// Útil para descobrir o ID correto da tabela quando o projeto não tem datasets visíveis.
-app.post('/api/waze/explorar', qualquerUsuario, async (req, res) => {
-  const { token } = req.body;
-  if (!token) return res.status(400).json({ erro: 'Token obrigatório' });
-
-  function bqGet(path, tok) {
-    return new Promise((resolve, reject) => {
-      const req2 = https.request({
-        hostname: 'bigquery.googleapis.com',
-        path,
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${tok}` },
-      }, (r) => {
-        let d = '';
-        r.on('data', c => d += c);
-        r.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('Resposta inválida')); } });
-      });
-      req2.on('error', reject);
-      req2.end();
-    });
-  }
-
-  try {
-    const tk = String(token).trim();
-
-    // 1. Lista projetos
-    const projData = await bqGet('/bigquery/v2/projects?maxResults=50', tk);
-    const projetos = (projData.projects || []).map(p => p.id);
-
-    const resultado = [];
-    for (const proj of projetos) {
-      const dsData = await bqGet(`/bigquery/v2/projects/${proj}/datasets?all=true&maxResults=100`, tk);
-      const datasets = dsData.datasets || [];
-      const dsList = [];
-
-      for (const ds of datasets) {
-        const dsId = ds.datasetReference.datasetId;
-        if (dsId.startsWith('_')) continue; // ignora anônimos
-        const tbData = await bqGet(`/bigquery/v2/projects/${proj}/datasets/${dsId}/tables?maxResults=100`, tk);
-        const tabelas = (tbData.tables || []).map(t => ({
-          tabela:   t.tableReference.tableId,
-          tipo:     t.type,
-          linhas:   t.numRows ? parseInt(t.numRows).toLocaleString('pt-BR') : '?',
-          fullId:   `${proj}.${dsId}.${t.tableReference.tableId}`,
-        }));
-        dsList.push({ dataset: dsId, tabelas });
-      }
-      if (dsList.length) resultado.push({ projeto: proj, datasets: dsList });
-    }
-
-    res.json({ ok: true, resultado, projetos });
-  } catch (e) {
-    res.status(500).json({ erro: e.message });
-  }
-});
-
-// Lê os buracos do banco (Neon) com os filtros — não depende do token.
-app.get('/api/waze/buracos', qualquerUsuario, async (req, res) => {
-  const validDate = v => v && /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null;
-  const di  = validDate(req.query.dataInicio);
-  const df  = validDate(req.query.dataFim);
-  const mr  = Math.max(1, parseInt(req.query.minRelatos) || 1);
-  const rua = req.query.rua
-    ? String(req.query.rua).replace(/['"\;%]/g, '').trim().slice(0, 100)
-    : null;
-
-  const conds  = ['relatos >= $1'];
-  const params = [mr];
-  if (di)  { params.push(di);  conds.push(`data >= $${params.length}`); }
-  if (df)  { params.push(df);  conds.push(`data <= $${params.length}`); }
-  if (rua) { params.push(`%${rua}%`); conds.push(`LOWER(COALESCE(rua, '')) LIKE LOWER($${params.length})`); }
-
-  try {
-    const { rows } = await pool.query(`
-      SELECT coordenadas, lat, lon, to_char(data, 'YYYY-MM-DD') AS data,
-             rua, relatos, confirmacoes, score
-      FROM waze_buracos
-      WHERE ${conds.join(' AND ')}
-      ORDER BY data DESC, relatos DESC
-      LIMIT 20000
-    `, params);
-
-    const dados = rows.map(r => ({
-      coordenadas:  r.coordenadas || '',
-      lat:          r.lat,
-      lon:          r.lon,
-      data:         r.data || '',
-      rua:          r.rua || '',
-      relatos:      r.relatos || 0,
-      confirmacoes: r.confirmacoes || 0,
-      score:        r.score || 0,
-    }));
-
-    const { rows: meta } = await pool.query(
-      'SELECT MAX(sincronizado_em) AS ultima, COUNT(*)::int AS total FROM waze_buracos'
+    const { rows } = await pool.query(
+      `SELECT DISTINCT empresa FROM usuarios
+        WHERE empresa IS NOT NULL AND empresa <> '' AND ativo = true
+        ORDER BY empresa`
     );
-
-    res.json({
-      ok: true, total: dados.length, dados,
-      sincronizadoEm: meta[0].ultima,
-      totalBanco: meta[0].total,
-      bancoVazio: meta[0].total === 0,
-    });
+    res.json(rows.map(r => r.empresa));
   } catch (e) {
-    console.error('GET /api/waze/buracos:', e.message);
+    console.error('GET /api/empresas:', e.message);
     res.status(500).json({ erro: e.message });
   }
 });
-// ─── fim Waze ──────────────────────────────────────────────────────────────────
+
+app.get('/api/equipes', qualquerUsuario, async (req, res) => {
+  try {
+    const { empresa } = req.query;
+    const params = [];
+    let filtro = `WHERE perfil = 'equipe' AND equipe_nome IS NOT NULL AND equipe_nome <> '' AND ativo = true`;
+    if (empresa) {
+      params.push(empresa);
+      filtro += ` AND empresa = $${params.length}`;
+    }
+    const { rows } = await pool.query(
+      `SELECT DISTINCT equipe_nome, empresa FROM usuarios ${filtro} ORDER BY equipe_nome`,
+      params
+    );
+    res.json(rows.map(r => ({ equipe: r.equipe_nome, empresa: r.empresa || null })));
+  } catch (e) {
+    console.error('GET /api/equipes:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
+});
+// ─── fim Empresas e Equipes ─────────────────────────────────────────────────────
 
 // ─── Importar Protocolo SEN ────────────────────────────────────────────────────
 let _pdfParse = null;

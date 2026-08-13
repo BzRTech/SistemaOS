@@ -222,11 +222,14 @@ select.input {
               </select>
             </div>
           </div>
+          <div class="empresa-select" id="empresaGoldmanNovo">
+            <label class="label" for="empresaGoldman">Nome da empresa</label>
+            <input class="input" type="text" id="empresaGoldman" placeholder="Ex.: Goldman" list="empresasSugestoes">
+            <datalist id="empresasSugestoes"></datalist>
+          </div>
           <div class="empresa-select" id="empresaSelectNovo">
-            <label class="label" for="empresaNome">Empresa</label>
-            <select class="input" id="empresaNome">
-              <option value="Goldman">Goldman</option>
-            </select>
+            <label class="label" for="empresaNome">Empresa vinculada</label>
+            <select class="input" id="empresaNome"></select>
           </div>
           <div class="equipe-select" id="equipeSelectNovo">
             <label class="label" for="equipeNome">Equipe</label>
@@ -306,24 +309,43 @@ function limparAlerta() {
 
 const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
 const EQUIPES = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
-const EMPRESAS = ['Goldman'];
+let EMPRESAS = [];   // carregado dinamicamente de /api/empresas
 let EU = {};
 let USUARIOS = [];
 let EDITANDO = null;
+
+// Busca as empresas cadastradas e popula selects/datalists
+async function carregarEmpresas() {
+  try {
+    const r = await apiFetch('/api/empresas');
+    if (r.ok) EMPRESAS = await r.json();
+  } catch { EMPRESAS = []; }
+  const dl = document.getElementById('empresasSugestoes');
+  if (dl) dl.innerHTML = EMPRESAS.map(e => `<option value="${esc(e)}">`).join('');
+  const sel = document.getElementById('empresaNome');
+  if (sel) sel.innerHTML = EMPRESAS.length
+    ? EMPRESAS.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('')
+    : '<option value="">(nenhuma empresa cadastrada)</option>';
+}
 
 function toggleEquipeSelect(ctx) {
   if (ctx === 'novo') {
     const perfil = document.getElementById('perfil').value;
     const isEquipe = perfil === 'equipe';
+    const isGoldman = perfil === 'goldman';
     document.getElementById('equipeSelectNovo').classList.toggle('visivel', isEquipe);
     document.getElementById('empresaSelectNovo').classList.toggle('visivel', isEquipe);
+    document.getElementById('empresaGoldmanNovo').classList.toggle('visivel', isGoldman);
   } else {
     const perfil = document.getElementById(`e-perfil-${ctx}`).value;
     const isEquipe = perfil === 'equipe';
+    const isGoldman = perfil === 'goldman';
     const el = document.getElementById(`e-equipe-wrap-${ctx}`);
     if (el) el.classList.toggle('visivel', isEquipe);
     const empEl = document.getElementById(`e-empresa-wrap-${ctx}`);
     if (empEl) empEl.classList.toggle('visivel', isEquipe);
+    const empGoldEl = document.getElementById(`e-empresa-goldman-wrap-${ctx}`);
+    if (empGoldEl) empGoldEl.classList.toggle('visivel', isGoldman);
   }
 }
 
@@ -339,6 +361,7 @@ function toggleEquipeSelect(ctx) {
     return;
   }
   document.getElementById('conteudo').style.display = 'block';
+  await carregarEmpresas();
   carregarUsuarios();
 })();
 
@@ -372,9 +395,11 @@ function renderizar() {
     const equipeOpts = EQUIPES.map(eq =>
       `<option value="${esc(eq)}" ${u.equipe_nome === eq ? 'selected' : ''}>${esc(eq)}</option>`
     ).join('');
-    const empresaOpts = EMPRESAS.map(emp =>
+    const listaEmp = EMPRESAS.slice();
+    if (u.empresa && !listaEmp.includes(u.empresa)) listaEmp.push(u.empresa);
+    const empresaOpts = listaEmp.map(emp =>
       `<option value="${esc(emp)}" ${u.empresa === emp ? 'selected' : ''}>${esc(emp)}</option>`
-    ).join('');
+    ).join('') || '<option value="">(nenhuma empresa cadastrada)</option>';
 
     return `
     <div class="usuario ${u.ativo ? '' : 'inativo'}">
@@ -423,8 +448,12 @@ function renderizar() {
               </select>
             </div>
           </div>
+          <div class="empresa-select ${u.perfil === 'goldman' ? 'visivel' : ''}" id="e-empresa-goldman-wrap-${u.id}">
+            <label class="label">Nome da empresa</label>
+            <input class="input" type="text" id="e-empresa-goldman-${u.id}" value="${esc(u.empresa || '')}" placeholder="Ex.: Goldman">
+          </div>
           <div class="empresa-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-empresa-wrap-${u.id}">
-            <label class="label">Empresa</label>
+            <label class="label">Empresa vinculada</label>
             <select class="input" id="e-empresa-${u.id}">
               ${empresaOpts}
             </select>
@@ -471,6 +500,10 @@ async function criarUsuario(e) {
   if (perfil === 'equipe') {
     corpo.equipe_nome = document.getElementById('equipeNome').value;
     corpo.empresa = document.getElementById('empresaNome').value;
+    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (perfil Goldman) antes de criar equipes.'); return; }
+  } else if (perfil === 'goldman') {
+    corpo.empresa = document.getElementById('empresaGoldman').value.trim();
+    if (!corpo.empresa) { alertaForm('Informe o nome da empresa para o perfil Goldman.'); return; }
   }
 
   btn.disabled = true;
@@ -486,7 +519,9 @@ async function criarUsuario(e) {
     document.getElementById('formNovo').reset();
     document.getElementById('equipeSelectNovo').classList.remove('visivel');
     document.getElementById('empresaSelectNovo').classList.remove('visivel');
+    document.getElementById('empresaGoldmanNovo').classList.remove('visivel');
     alertaForm(`Usuário ${data.nome} cadastrado com sucesso.`, 'ok');
+    await carregarEmpresas();  // uma nova empresa goldman pode ter sido criada
     await carregarUsuarios();
   } catch (err) {
     alertaForm('Erro de conexão: ' + err.message);
@@ -529,10 +564,16 @@ async function salvarUsuario(id) {
     if (eqEl) corpo.equipe_nome = eqEl.value;
     const empEl = document.getElementById(`e-empresa-${id}`);
     if (empEl) corpo.empresa = empEl.value;
+    if (!corpo.empresa) { toast('Selecione a empresa da equipe'); return; }
+  } else if (perfil === 'goldman') {
+    const empGoldEl = document.getElementById(`e-empresa-goldman-${id}`);
+    if (empGoldEl) corpo.empresa = empGoldEl.value.trim();
+    if (!corpo.empresa) { toast('Informe o nome da empresa'); return; }
   }
 
   EDITANDO = null;
-  await atualizar(id, corpo, senha ? 'Dados e senha atualizados' : 'Dados atualizados');
+  const ok = await atualizar(id, corpo, senha ? 'Dados e senha atualizados' : 'Dados atualizados');
+  if (ok && perfil === 'goldman') await carregarEmpresas();
 }
 
 async function alternarAtivo(id, ativo) {
