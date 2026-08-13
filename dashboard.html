@@ -449,7 +449,7 @@ setInterval(carregar, 60000); // atualiza a cada minuto
 // Mostra nome do usuário logado
 fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
   if (!data) return;
-  const perfis = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
+  const perfis = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Empresa', equipe: 'Equipe' };
   const el = document.getElementById('usuarioSub');
   const u = data.usuario;
   const label = perfis[u.perfil] || u.perfil || perfis[u.role] || u.role;

@@ -216,7 +216,7 @@ select.input {
               <label class="label" for="perfil">Perfil de acesso</label>
               <select class="input" id="perfil" onchange="toggleEquipeSelect('novo')">
                 <option value="seinfra">SEINFRA — importa e valida O.S.</option>
-                <option value="goldman">Goldman — despacha para equipes</option>
+                <option value="goldman">Empresa — despacha para equipes</option>
                 <option value="equipe">Equipe — executa serviços</option>
                 <option value="admin">Admin — acesso total</option>
               </select>
@@ -224,7 +224,7 @@ select.input {
           </div>
           <div class="empresa-select" id="empresaGoldmanNovo">
             <label class="label" for="empresaGoldman">Nome da empresa</label>
-            <input class="input" type="text" id="empresaGoldman" placeholder="Ex.: Goldman" list="empresasSugestoes">
+            <input class="input" type="text" id="empresaGoldman" placeholder="Ex.: Construtora Alfa" list="empresasSugestoes">
             <datalist id="empresasSugestoes"></datalist>
           </div>
           <div class="empresa-select" id="empresaSelectNovo">
@@ -307,7 +307,7 @@ function limparAlerta() {
   document.getElementById('alertaForm').className = 'alerta';
 }
 
-const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
+const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Empresa', equipe: 'Equipe' };
 const EQUIPES = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
 let EMPRESAS = [];   // carregado dinamicamente de /api/empresas
 let EU = {};
@@ -442,7 +442,7 @@ function renderizar() {
               <label class="label">Perfil</label>
               <select class="input" id="e-perfil-${u.id}" ${souEu ? 'disabled' : ''} onchange="toggleEquipeSelect('${u.id}')">
                 <option value="seinfra"  ${u.perfil === 'seinfra'  ? 'selected' : ''}>SEINFRA</option>
-                <option value="goldman"  ${u.perfil === 'goldman'  ? 'selected' : ''}>Goldman</option>
+                <option value="goldman"  ${u.perfil === 'goldman'  ? 'selected' : ''}>Empresa</option>
                 <option value="equipe"   ${u.perfil === 'equipe'   ? 'selected' : ''}>Equipe</option>
                 <option value="admin"    ${u.perfil === 'admin'    ? 'selected' : ''}>Admin</option>
               </select>
@@ -450,7 +450,7 @@ function renderizar() {
           </div>
           <div class="empresa-select ${u.perfil === 'goldman' ? 'visivel' : ''}" id="e-empresa-goldman-wrap-${u.id}">
             <label class="label">Nome da empresa</label>
-            <input class="input" type="text" id="e-empresa-goldman-${u.id}" value="${esc(u.empresa || '')}" placeholder="Ex.: Goldman">
+            <input class="input" type="text" id="e-empresa-goldman-${u.id}" value="${esc(u.empresa || '')}" placeholder="Ex.: Construtora Alfa">
           </div>
           <div class="empresa-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-empresa-wrap-${u.id}">
             <label class="label">Empresa vinculada</label>
@@ -500,10 +500,10 @@ async function criarUsuario(e) {
   if (perfil === 'equipe') {
     corpo.equipe_nome = document.getElementById('equipeNome').value;
     corpo.empresa = document.getElementById('empresaNome').value;
-    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (perfil Goldman) antes de criar equipes.'); return; }
+    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (perfil Empresa) antes de criar equipes.'); return; }
   } else if (perfil === 'goldman') {
     corpo.empresa = document.getElementById('empresaGoldman').value.trim();
-    if (!corpo.empresa) { alertaForm('Informe o nome da empresa para o perfil Goldman.'); return; }
+    if (!corpo.empresa) { alertaForm('Informe o nome da empresa para o perfil Empresa.'); return; }
   }
 
   btn.disabled = true;

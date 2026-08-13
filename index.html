@@ -614,19 +614,12 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
         <label class="form-label">🏢 Direcionar p/ Empresa</label>
         <select class="form-input" id="novaEmpresa" onchange="toggleNovaEquipe()">
           <option value="">— nenhuma (só SEINFRA) —</option>
-          <option value="Goldman">Goldman</option>
         </select>
       </div>
       <div class="form-group" style="margin:0">
         <label class="form-label">👥 Equipe de Execução</label>
         <select class="form-input" id="novaEquipeDesignada" disabled>
           <option value="">— a empresa direciona —</option>
-          <option value="Equipe 1">Equipe 1</option>
-          <option value="Equipe 2">Equipe 2</option>
-          <option value="Equipe 3">Equipe 3</option>
-          <option value="Equipe 4">Equipe 4</option>
-          <option value="Equipe 5">Equipe 5</option>
-          <option value="Equipe 6">Equipe 6</option>
         </select>
       </div>
     </div>
@@ -954,6 +947,14 @@ async function carregarCadastros() {
     if (rE.ok) S.empresas = await rE.json();
     if (rQ.ok) S.equipes = await rQ.json();
   } catch (e) { console.warn('Falha ao carregar empresas/equipes:', e.message); }
+  // popula o select de empresa do formulário de nova O.S.
+  const selEmp = document.getElementById('novaEmpresa');
+  if (selEmp) {
+    const atual = selEmp.value;
+    selEmp.innerHTML = '<option value="">— nenhuma (só SEINFRA) —</option>' +
+      S.empresas.map(e => `<option value="${e}">${e}</option>`).join('');
+    selEmp.value = atual;
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -962,7 +963,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const u = getUsuario();
   if (u.nome) document.getElementById('configNomeUsuario').textContent = u.nome;
   if (u.email) document.getElementById('configEmailUsuario').textContent = u.email;
-  const perfilLabel = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
+  const perfilLabel = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Empresa', equipe: 'Equipe' };
   if (u.perfil) document.getElementById('configPerfilBadge').textContent = perfilLabel[u.perfil] || u.perfil;
   // Cadastro de usuários é exclusivo do perfil admin
   if (u.perfil === 'admin') document.getElementById('linkUsuarios').style.display = 'block';
@@ -980,7 +981,7 @@ async function iniciarSessao() {
     if (!r.ok) return;
     const { usuario } = await r.json();
     localStorage.setItem('os_usuario', JSON.stringify(usuario));
-    const perfilLabels = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Goldman', equipe: 'Equipe' };
+    const perfilLabels = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Empresa', equipe: 'Equipe' };
     const perfilDisplay = perfilLabels[usuario.perfil] || usuario.perfil;
     const equipeTxt = usuario.equipe_nome ? ` · ${usuario.equipe_nome}` : '';
     document.getElementById('usuarioSub').textContent = `${usuario.nome} · ${perfilDisplay}${equipeTxt}`;
@@ -1383,6 +1384,9 @@ function toggleNovaEquipe() {
   const empresa = document.getElementById('novaEmpresa').value;
   const eqSel = document.getElementById('novaEquipeDesignada');
   eqSel.disabled = !empresa;
+  const equipes = S.equipes.filter(q => q.empresa === empresa).map(q => q.equipe);
+  eqSel.innerHTML = '<option value="">— a empresa direciona —</option>' +
+    equipes.map(e => `<option value="${e}">${e}</option>`).join('');
   if (!empresa) eqSel.value = '';
 }
 
@@ -1547,7 +1551,7 @@ async function abrirDetalhes(id) {
               <option value="">Selecione a empresa...</option>
               ${S.empresas.map(e => `<option value="${e}">${e}</option>`).join('')}
             </select>
-            ${S.empresas.length ? '' : '<p style="font-size:12px;color:var(--vermelho);margin-top:6px">Nenhuma empresa cadastrada. Cadastre um usuário do perfil Goldman primeiro.</p>'}
+            ${S.empresas.length ? '' : '<p style="font-size:12px;color:var(--vermelho);margin-top:6px">Nenhuma empresa cadastrada. Cadastre um usuário do perfil Empresa primeiro.</p>'}
             <button class="btn btn-primary" style="margin-top:10px" onclick="direcionarEmpresa('${os.id}')">🏢 Direcionar</button>
           </div>`;
       }
