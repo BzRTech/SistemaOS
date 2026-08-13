@@ -285,7 +285,9 @@ function renderMapa(ordens) {
     totalPontos ? `· ${totalPontos} ponto(s)` : '';
 
   if (!window.L) return; // Leaflet não carregou (sem internet)
-  if (!comCoord.length) {
+  // Só mostra o estado vazio se NÃO houver nenhum ponto — nem de coordenadas
+  // no cadastro, nem de GPS das fotos de serviço (início/fim).
+  if (!totalPontos) {
     if (mapa) { mapa.remove(); mapa = null; }
     document.getElementById('mapaWrap').innerHTML =
       '<div class="mapa-vazio">📍<div>Nenhuma O.S. com coordenadas ainda.</div></div>';
