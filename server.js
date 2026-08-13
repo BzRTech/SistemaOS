@@ -284,6 +284,17 @@ function parseHistorico(v) {
   return Array.isArray(v) ? v : [];
 }
 
+// EXIF entrega data/hora como "YYYY:MM:DD HH:MM:SS" — os dois-pontos na data
+// não são aceitos pelo Postgres. Converte para um timestamp ISO válido.
+function normalizarDataHora(dh) {
+  if (!dh) return null;
+  const s = String(dh).trim();
+  const m = s.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 // fotos: a coluna TEXT guarda um data URI único (legado) ou um array JSON
 // de data URIs (várias fotos). Sempre devolve array.
 function parseFotos(v) {
@@ -823,7 +834,7 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
          foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3,
          status = 'em_execucao', historico = $4, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
-      [foto || null, gps || null, dataHora || null, JSON.stringify(historico), id]
+      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-inicio:', e.message); res.status(500).json({ erro: e.message }); }
@@ -859,7 +870,7 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
          foto_fim = $1, gps_fim = $2, data_fim_servico = $3,
          status = 'aguardando_validacao', historico = $4, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
-      [foto || null, gps || null, dataHora || null, JSON.stringify(historico), id]
+      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-fim:', e.message); res.status(500).json({ erro: e.message }); }
