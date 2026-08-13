@@ -1566,16 +1566,19 @@ async function abrirDetalhes(id) {
           </div>`;
       }
 
-      if ((usuario.perfil === 'goldman' || usuario.perfil === 'admin') && os.status === 'encaminhada' && os.empresaDesignada) {
+      if ((usuario.perfil === 'goldman' || usuario.perfil === 'admin') && (os.status === 'encaminhada' || os.status === 'direcionada') && os.empresaDesignada) {
+        const trocar = os.status === 'direcionada' && os.equipeDesignada;
+        const eqDisponiveis = S.equipes.filter(q => !os.empresaDesignada || q.empresa === os.empresaDesignada);
         acoesHtml += `
           <div class="form-card" style="border:2px solid #8a5fd0;background:rgba(138,95,208,0.06)">
-            <div class="form-card-title" style="color:#8a5fd0">📤 Encaminhar para Equipe</div>
+            <div class="form-card-title" style="color:#8a5fd0">${trocar ? '🔄 Trocar Equipe' : '📤 Encaminhar para Equipe'}</div>
+            ${trocar ? `<p style="font-size:12px;color:var(--cinza-texto);margin-bottom:8px">Equipe atual: <strong>${os.equipeDesignada}</strong>. Selecione outra para trocar.</p>` : ''}
             <select class="form-input" id="selectEquipe">
               <option value="">Selecione a equipe...</option>
-              ${S.equipes.filter(q => !os.empresaDesignada || q.empresa === os.empresaDesignada).map(q => `<option value="${q.equipe}">${q.equipe}</option>`).join('')}
+              ${eqDisponiveis.map(q => `<option value="${q.equipe}"${q.equipe===os.equipeDesignada?' selected':''}>${q.equipe}</option>`).join('')}
             </select>
-            ${S.equipes.filter(q => !os.empresaDesignada || q.empresa === os.empresaDesignada).length ? '' : `<p style="font-size:12px;color:var(--vermelho);margin-top:6px">Nenhuma equipe cadastrada para ${os.empresaDesignada||'esta empresa'}. Cadastre usuários do perfil Equipe.</p>`}
-            <button class="btn btn-primary" style="margin-top:10px;background:#8a5fd0;border-color:#7a4fc0" onclick="encaminharOS('${os.id}')">📤 Encaminhar</button>
+            ${eqDisponiveis.length ? '' : `<p style="font-size:12px;color:var(--vermelho);margin-top:6px">Nenhuma equipe cadastrada para ${os.empresaDesignada||'esta empresa'}. Cadastre usuários do perfil Equipe.</p>`}
+            <button class="btn btn-primary" style="margin-top:10px;background:#8a5fd0;border-color:#7a4fc0" onclick="encaminharOS('${os.id}')">${trocar ? '🔄 Trocar Equipe' : '📤 Encaminhar'}</button>
           </div>`;
       }
 

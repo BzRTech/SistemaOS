@@ -792,6 +792,9 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
 
     const os = atual[0];
+    // Só é possível definir/trocar a equipe antes do serviço começar
+    if (!['encaminhada', 'direcionada'].includes(os.status))
+      return res.status(400).json({ erro: 'Só é possível definir ou trocar a equipe antes do início do serviço' });
     // Goldman só encaminha OS da própria empresa e para equipes cadastradas nela
     const empresaOS = os.empresa_designada;
     if (req.usuario.perfil === 'goldman' && req.usuario.empresa && empresaOS && req.usuario.empresa !== empresaOS)
@@ -803,11 +806,14 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
     if (!eqRows.length)
       return res.status(400).json({ erro: `${equipe} não está cadastrada para a empresa ${empresaOS || '(indefinida)'}` });
 
+    const trocando = os.status === 'direcionada' && os.equipe_designada && os.equipe_designada !== equipe;
     const historico = parseHistorico(os.historico);
     historico.push({
       status: 'direcionada',
       data: new Date().toISOString(),
-      obs: `Direcionada para ${equipe} por ${req.usuario.nome}`,
+      obs: trocando
+        ? `Equipe alterada de ${os.equipe_designada} para ${equipe} por ${req.usuario.nome}`
+        : `Direcionada para ${equipe} por ${req.usuario.nome}`,
       usuario: req.usuario.id,
     });
 
