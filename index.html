@@ -955,6 +955,16 @@ async function carregarCadastros() {
       S.empresas.map(e => `<option value="${e}">${e}</option>`).join('');
     selEmp.value = atual;
   }
+  // datalists dos campos de edição (Responsável / Equipe) com o cadastro real
+  const dlEq = document.getElementById('eqSugestoes');
+  if (dlEq) {
+    const labels = S.equipes.map(q => q.empresa ? `${q.empresa} — ${q.equipe}` : q.equipe);
+    dlEq.innerHTML = [...new Set([...S.empresas, ...labels])].map(v => `<option value="${v}">`).join('');
+  }
+  const dlResp = document.getElementById('respSugestoes');
+  if (dlResp) {
+    dlResp.innerHTML = S.empresas.map(v => `<option value="${v}">`).join('');
+  }
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────

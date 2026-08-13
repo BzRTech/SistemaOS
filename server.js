@@ -563,7 +563,16 @@ app.get('/api/ordens/:id', qualquerUsuario, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
-    res.json(mapRow(rows[0], true));
+    const os = rows[0];
+    // Isolamento por empresa/equipe: uma empresa (ou sua equipe) só acessa as
+    // próprias OS. SEINFRA/admin veem todas.
+    if (req.usuario.perfil === 'equipe' &&
+        (os.equipe_designada !== req.usuario.equipe_nome ||
+         os.empresa_designada !== req.usuario.empresa))
+      return res.status(403).json({ erro: 'Sem acesso a esta O.S.' });
+    if (req.usuario.perfil === 'goldman' && os.empresa_designada !== req.usuario.empresa)
+      return res.status(403).json({ erro: 'Sem acesso a esta O.S.' });
+    res.json(mapRow(os, true));
   } catch (e) { console.error('GET /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
@@ -575,21 +584,28 @@ const COLUNAS_INSERT = `
 
 function valoresInsert(o, numero, criadoEm) {
   const data = criadoEm || new Date().toISOString();
+  const empresaDesignada = o.empresaDesignada || o.empresa_designada || null;
+  const equipeDesignada = o.equipeDesignada || o.equipe_designada || null;
+  // Se a OS já nasce direcionada (SEINFRA escolheu empresa/equipe no cadastro),
+  // o status precisa acompanhar — senão a empresa nunca vê a ação de encaminhar.
+  let statusInicial = 'aberta';
+  if (empresaDesignada && equipeDesignada) statusInicial = 'direcionada';
+  else if (empresaDesignada) statusInicial = 'encaminhada';
   const historico = JSON.stringify([{
-    status: 'aberta', data, obs: o.obsAbertura || 'Ordem de servico aberta',
+    status: statusInicial, data, obs: o.obsAbertura || 'Ordem de servico aberta',
   }]);
   return [
     uuidv4(), numero, o.tipo || '', o.descricao || '',
     o.endereco || '', o.bairro || '', o.referencia || '',
     o.solicitante || '', o.responsavel || '', o.equipe || '',
-    o.prioridade || 'media', o.prazo || null, 'aberta',
+    o.prioridade || 'media', o.prazo || null, statusInicial,
     Math.max(1, parseInt(o.ocorrencias, 10) || 1),
     validarData(o.primeiraOcorrencia) ? o.primeiraOcorrencia : null,
     (o.tag || '').toString().trim().slice(0, 40),
     serializarFotos(o.fotoAbertura), historico, data,
     o.dataSolicitacao || o.data_solicitacao || null,
-    o.empresaDesignada || o.empresa_designada || null,
-    o.equipeDesignada || o.equipe_designada || null,
+    empresaDesignada,
+    equipeDesignada,
     serializarFotos(o.fotosPdf || o.fotos_pdf),
   ];
 }
@@ -817,8 +833,16 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
 
     const os = atual[0];
 
-    // Valida que a OS está designada para a equipe do usuário
-    if (req.usuario.perfil === 'equipe' && os.equipe_designada !== req.usuario.equipe_nome)
+    // Só é possível iniciar uma OS já direcionada a uma equipe
+    if (os.status !== 'direcionada')
+      return res.status(400).json({ erro: 'OS precisa estar direcionada a uma equipe para iniciar' });
+
+    // Valida que a OS está designada para a equipe E empresa do usuário
+    // (o nome da equipe se repete entre empresas — checar só ele permitiria
+    //  que a "Equipe 1" de outra empresa manipulasse esta OS)
+    if (req.usuario.perfil === 'equipe' &&
+        (os.equipe_designada !== req.usuario.equipe_nome ||
+         os.empresa_designada !== req.usuario.empresa))
       return res.status(403).json({ erro: 'Esta OS não está designada para sua equipe' });
 
     const historico = parseHistorico(os.historico);
@@ -851,10 +875,12 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
 
     const os = atual[0];
 
-    // Valida status e equipe
+    // Valida status e equipe (+ empresa: nome de equipe se repete entre empresas)
     if (os.status !== 'em_execucao')
       return res.status(400).json({ erro: 'OS precisa estar em execução para registrar fim' });
-    if (req.usuario.perfil === 'equipe' && os.equipe_designada !== req.usuario.equipe_nome)
+    if (req.usuario.perfil === 'equipe' &&
+        (os.equipe_designada !== req.usuario.equipe_nome ||
+         os.empresa_designada !== req.usuario.empresa))
       return res.status(403).json({ erro: 'Esta OS não está designada para sua equipe' });
 
     const historico = parseHistorico(os.historico);
