@@ -2662,6 +2662,10 @@ function obterLocalizacao() {
 }
 
 async function registrarFotoServico(id, tipo) {
+  // IMPORTANTE (iOS): dispara a geolocalização AINDA no gesto do toque, ANTES
+  // de abrir a câmera. Ao voltar da câmera o iOS perde o "gesto do usuário" e
+  // o pedido de permissão de localização não aparece.
+  const gpsPromise = obterLocalizacao();
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -2673,11 +2677,10 @@ async function registrarFotoServico(id, tipo) {
     const oldHtml = statusEl.innerHTML;
     statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...<div style="font-size:12px;color:var(--cinza-texto);margin-top:8px">Permita o acesso à localização se for solicitado.</div></div>';
     try {
-      // inicia a geolocalização já (dispara o pedido de permissão logo)
-      const gpsPromise = obterLocalizacao();
       const exif = await extrairEXIF(file);
-      // GPS: EXIF da foto (quando existir) ou geolocalização do aparelho
-      const gps = exif.gps || await gpsPromise;
+      // GPS: EXIF da foto, a leitura iniciada no toque, ou (se demorou) uma
+      // nova leitura — a permissão já foi concedida, então funciona sem gesto.
+      const gps = exif.gps || await gpsPromise || await obterLocalizacao();
       if (!gps) {
         statusEl.innerHTML = oldHtml;
         toast('📍 Não foi possível obter o GPS. Verifique se a localização do aparelho está ligada e se o navegador tem permissão, depois tente de novo.');
@@ -2717,6 +2720,8 @@ function converterExifDate(exifDate) {
 async function trocarFotoServico(id, tipo) {
   const rotulo = tipo === 'inicio' ? 'início' : 'conclusão';
   if (!confirm(`Substituir a foto de ${rotulo}? A foto atual será trocada pela nova.`)) return;
+  // iOS: pede o GPS ainda no gesto, antes de abrir a câmera
+  const gpsPromise = obterLocalizacao();
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -2728,9 +2733,8 @@ async function trocarFotoServico(id, tipo) {
     const oldHtml = statusEl.innerHTML;
     statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...<div style="font-size:12px;color:var(--cinza-texto);margin-top:8px">Permita o acesso à localização se for solicitado.</div></div>';
     try {
-      const gpsPromise = obterLocalizacao();
       const exif = await extrairEXIF(file);
-      const gps = exif.gps || await gpsPromise;
+      const gps = exif.gps || await gpsPromise || await obterLocalizacao();
       if (!gps) {
         statusEl.innerHTML = oldHtml;
         toast('📍 Não foi possível obter o GPS. Verifique se a localização do aparelho está ligada e se o navegador tem permissão, depois tente de novo.');
