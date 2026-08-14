@@ -833,6 +833,8 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
   try {
     const { id } = req.params;
     const { foto, gps, dataHora } = req.body;
+    if (!gps || !String(gps).trim())
+      return res.status(400).json({ erro: 'Foto de início precisa de GPS. Ative a localização do dispositivo e permita o acesso.' });
 
     const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
@@ -875,6 +877,8 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
   try {
     const { id } = req.params;
     const { foto, gps, dataHora } = req.body;
+    if (!gps || !String(gps).trim())
+      return res.status(400).json({ erro: 'Foto de conclusão precisa de GPS. Ative a localização do dispositivo e permita o acesso.' });
 
     const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });

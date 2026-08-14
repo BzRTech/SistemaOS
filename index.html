@@ -2624,6 +2624,20 @@ async function encaminharOS(id) {
   } catch(e) { toast('Erro: ' + e.message); }
 }
 
+// Obtém a localização atual do aparelho (GPS do navegador).
+// Fotos tiradas pela câmera do navegador (sobretudo iOS) não trazem GPS no
+// EXIF — por isso usamos a geolocalização do dispositivo como fonte confiável.
+function obterLocalizacao() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
+      ()  => resolve(null),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+}
+
 async function registrarFotoServico(id, tipo) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -2634,14 +2648,22 @@ async function registrarFotoServico(id, tipo) {
     if (!file) return;
     const statusEl = document.getElementById('modalCorpo');
     const oldHtml = statusEl.innerHTML;
-    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e extraindo metadados...</div>';
+    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...</div>';
     try {
       const exif = await extrairEXIF(file);
+      // GPS: EXIF da foto (quando existir) ou geolocalização do aparelho
+      let gps = exif.gps || null;
+      if (!gps) gps = await obterLocalizacao();
+      if (!gps) {
+        statusEl.innerHTML = oldHtml;
+        toast('📍 Não foi possível obter o GPS. Ative a localização e permita o acesso no navegador, depois tente de novo.');
+        return;
+      }
       const base64 = await comprimirImagem(file, 900);
       const endpoint = tipo === 'inicio' ? 'registrar-inicio' : 'registrar-fim';
       const body = {
         foto: base64,
-        gps: exif.gps || null,
+        gps,
         dataHora: exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString()
       };
       const r = await apiFetch(`/api/ordens/${id}/${endpoint}`, {
