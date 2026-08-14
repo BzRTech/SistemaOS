@@ -2642,10 +2642,21 @@ async function encaminharOS(id) {
 function obterLocalizacao() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    // Timeout DURO do nosso lado: no iOS o getCurrentPosition às vezes não
+    // chama nenhum callback (nem o timeout nativo), o que travava a tela.
+    const hardTimer = setTimeout(() => finish(null), 13000);
+    const ok = (pos) => { clearTimeout(hardTimer); finish(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`); };
+    // 1ª tentativa: alta precisão; se falhar, tenta baixa precisão (mais rápida)
     navigator.geolocation.getCurrentPosition(
-      pos => resolve(`${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}`),
-      ()  => resolve(null),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      ok,
+      () => navigator.geolocation.getCurrentPosition(
+        ok,
+        () => { clearTimeout(hardTimer); finish(null); },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
+      ),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
     );
   });
 }
@@ -2660,15 +2671,16 @@ async function registrarFotoServico(id, tipo) {
     if (!file) return;
     const statusEl = document.getElementById('modalCorpo');
     const oldHtml = statusEl.innerHTML;
-    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...</div>';
+    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...<div style="font-size:12px;color:var(--cinza-texto);margin-top:8px">Permita o acesso à localização se for solicitado.</div></div>';
     try {
+      // inicia a geolocalização já (dispara o pedido de permissão logo)
+      const gpsPromise = obterLocalizacao();
       const exif = await extrairEXIF(file);
       // GPS: EXIF da foto (quando existir) ou geolocalização do aparelho
-      let gps = exif.gps || null;
-      if (!gps) gps = await obterLocalizacao();
+      const gps = exif.gps || await gpsPromise;
       if (!gps) {
         statusEl.innerHTML = oldHtml;
-        toast('📍 Não foi possível obter o GPS. Ative a localização e permita o acesso no navegador, depois tente de novo.');
+        toast('📍 Não foi possível obter o GPS. Verifique se a localização do aparelho está ligada e se o navegador tem permissão, depois tente de novo.');
         return;
       }
       const base64 = await comprimirImagem(file, 900);
@@ -2714,14 +2726,14 @@ async function trocarFotoServico(id, tipo) {
     if (!file) return;
     const statusEl = document.getElementById('modalCorpo');
     const oldHtml = statusEl.innerHTML;
-    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...</div>';
+    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...<div style="font-size:12px;color:var(--cinza-texto);margin-top:8px">Permita o acesso à localização se for solicitado.</div></div>';
     try {
+      const gpsPromise = obterLocalizacao();
       const exif = await extrairEXIF(file);
-      let gps = exif.gps || null;
-      if (!gps) gps = await obterLocalizacao();
+      const gps = exif.gps || await gpsPromise;
       if (!gps) {
         statusEl.innerHTML = oldHtml;
-        toast('📍 Não foi possível obter o GPS. Ative a localização e permita o acesso no navegador, depois tente de novo.');
+        toast('📍 Não foi possível obter o GPS. Verifique se a localização do aparelho está ligada e se o navegador tem permissão, depois tente de novo.');
         return;
       }
       const base64 = await comprimirImagem(file, 900);
