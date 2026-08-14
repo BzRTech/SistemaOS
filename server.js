@@ -912,6 +912,56 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
   } catch (e) { console.error('POST registrar-fim:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
+// Refazer/trocar a foto de serviço (início ou fim) sem alterar o status —
+// para o caso de a primeira foto não ter ficado boa. (equipe dona, admin)
+app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tipo, foto, gps, dataHora } = req.body;
+    if (tipo !== 'inicio' && tipo !== 'fim')
+      return res.status(400).json({ erro: 'Tipo inválido (use inicio ou fim)' });
+    if (!foto) return res.status(400).json({ erro: 'Foto não informada' });
+    if (!gps || !String(gps).trim())
+      return res.status(400).json({ erro: 'A foto precisa de GPS. Ative a localização do dispositivo e permita o acesso.' });
+
+    const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
+    if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
+    const os = atual[0];
+
+    // Isolamento: equipe só mexe na própria OS (equipe + empresa)
+    if (req.usuario.perfil === 'equipe' &&
+        (os.equipe_designada !== req.usuario.equipe_nome ||
+         os.empresa_designada !== req.usuario.empresa))
+      return res.status(403).json({ erro: 'Esta OS não está designada para sua equipe' });
+
+    // Só permite trocar enquanto a OS não foi fechada/cancelada
+    const inicioEditavel = ['em_execucao', 'aguardando_validacao'].includes(os.status);
+    const fimEditavel = os.status === 'aguardando_validacao';
+    if (tipo === 'inicio' && !inicioEditavel)
+      return res.status(400).json({ erro: 'A foto de início só pode ser trocada durante a execução do serviço' });
+    if (tipo === 'fim' && !fimEditavel)
+      return res.status(400).json({ erro: 'A foto de conclusão só pode ser trocada enquanto aguarda validação' });
+
+    const historico = parseHistorico(os.historico);
+    historico.push({
+      status: os.status,
+      data: new Date().toISOString(),
+      obs: `Foto de ${tipo === 'inicio' ? 'início' : 'conclusão'} refeita por ${req.usuario.nome}`,
+      usuario: req.usuario.id,
+    });
+
+    const campos = tipo === 'inicio'
+      ? 'foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3'
+      : 'foto_fim = $1, gps_fim = $2, data_fim_servico = $3';
+    const { rows } = await pool.query(
+      `UPDATE ordens_servico SET ${campos}, historico = $4, atualizado_em = NOW()
+       WHERE id = $5 RETURNING *`,
+      [foto, gps, normalizarDataHora(dataHora), JSON.stringify(historico), id]
+    );
+    res.json(mapRow(rows[0], true));
+  } catch (e) { console.error('POST atualizar-foto:', e.message); res.status(500).json({ erro: e.message }); }
+});
+
 // Validar OS (seinfra, admin)
 app.post('/api/ordens/:id/validar', adminOuSeinfra, async (req, res) => {
   try {

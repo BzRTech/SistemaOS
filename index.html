@@ -1616,6 +1616,12 @@ async function abrirDetalhes(id) {
         ${os.dataInicioServico ? `<span>📅 ${fmtDataHora(os.dataInicioServico)}</span>` : ''}
       </div>
       ${os.gpsInicio ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsInicio)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+      ${(() => {
+        const u = getUsuario();
+        const dono = u.perfil === 'admin' || (u.perfil === 'equipe' && os.equipeDesignada === u.equipe_nome && os.empresaDesignada === u.empresa);
+        return (dono && ['em_execucao','aguardando_validacao'].includes(os.status))
+          ? `<button class="btn btn-secondary" style="margin-top:8px;font-size:12px;width:100%" onclick="trocarFotoServico('${os.id}','inicio')">🔄 Refazer foto de início</button>` : '';
+      })()}
     </div>` : ''}
 
     <!-- FOTO DE CONCLUSÃO DO SERVIÇO -->
@@ -1630,6 +1636,12 @@ async function abrirDetalhes(id) {
         ${os.dataFimServico ? `<span>📅 ${fmtDataHora(os.dataFimServico)}</span>` : ''}
       </div>
       ${os.gpsFim ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsFim)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+      ${(() => {
+        const u = getUsuario();
+        const dono = u.perfil === 'admin' || (u.perfil === 'equipe' && os.equipeDesignada === u.equipe_nome && os.empresaDesignada === u.empresa);
+        return (dono && os.status === 'aguardando_validacao')
+          ? `<button class="btn btn-secondary" style="margin-top:8px;font-size:12px;width:100%" onclick="trocarFotoServico('${os.id}','fim')">🔄 Refazer foto de conclusão</button>` : '';
+      })()}
     </div>` : ''}
 
     <!-- FOTOS DO PROTOCOLO/DOCUMENTO (importadas do PDF) -->
@@ -2687,6 +2699,48 @@ function converterExifDate(exifDate) {
   const m = exifDate.match(/(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
   if (!m) return new Date().toISOString();
   return new Date(m[1], m[2]-1, m[3], m[4], m[5], m[6]).toISOString();
+}
+
+// Refaz a foto de início/fim (quando a primeira não ficou boa), mantendo o status
+async function trocarFotoServico(id, tipo) {
+  const rotulo = tipo === 'inicio' ? 'início' : 'conclusão';
+  if (!confirm(`Substituir a foto de ${rotulo}? A foto atual será trocada pela nova.`)) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('modalCorpo');
+    const oldHtml = statusEl.innerHTML;
+    statusEl.innerHTML = '<div style="text-align:center;padding:40px;font-size:14px;color:var(--azul)">⏳ Processando foto e obtendo GPS...</div>';
+    try {
+      const exif = await extrairEXIF(file);
+      let gps = exif.gps || null;
+      if (!gps) gps = await obterLocalizacao();
+      if (!gps) {
+        statusEl.innerHTML = oldHtml;
+        toast('📍 Não foi possível obter o GPS. Ative a localização e permita o acesso no navegador, depois tente de novo.');
+        return;
+      }
+      const base64 = await comprimirImagem(file, 900);
+      const r = await apiFetch(`/api/ordens/${id}/atualizar-foto`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tipo, foto: base64, gps,
+          dataHora: exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString(),
+        }),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
+      toast(`Foto de ${rotulo} atualizada!`);
+      abrirDetalhes(id);
+    } catch(e) {
+      statusEl.innerHTML = oldHtml;
+      toast('Erro: ' + e.message);
+    }
+  };
+  input.click();
 }
 
 async function validarOS(id, aceitar) {
