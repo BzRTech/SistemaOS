@@ -2719,7 +2719,9 @@ function converterExifDate(exifDate) {
 // Refaz a foto de início/fim (quando a primeira não ficou boa), mantendo o status
 async function trocarFotoServico(id, tipo) {
   const rotulo = tipo === 'inicio' ? 'início' : 'conclusão';
-  if (!confirm(`Substituir a foto de ${rotulo}? A foto atual será trocada pela nova.`)) return;
+  // Sem confirm() aqui: no iOS o diálogo consome o gesto do toque e impede o
+  // pedido de permissão de localização e a abertura da câmera. A confirmação
+  // é feita depois que a foto é escolhida, antes de enviar.
   // iOS: pede o GPS ainda no gesto, antes de abrir a câmera
   const gpsPromise = obterLocalizacao();
   const input = document.createElement('input');
@@ -2740,6 +2742,7 @@ async function trocarFotoServico(id, tipo) {
         toast('📍 Não foi possível obter o GPS. Verifique se a localização do aparelho está ligada e se o navegador tem permissão, depois tente de novo.');
         return;
       }
+      if (!confirm(`Substituir a foto de ${rotulo} pela nova?`)) { statusEl.innerHTML = oldHtml; return; }
       const base64 = await comprimirImagem(file, 900);
       const r = await apiFetch(`/api/ordens/${id}/atualizar-foto`, {
         method: 'POST',
