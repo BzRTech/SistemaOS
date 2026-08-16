@@ -36,6 +36,53 @@ export const criarOrdemSchema = z.object({
 });
 export type CriarOrdemInput = z.infer<typeof criarOrdemSchema>;
 
+export const criarSecretariaSchema = z.object({
+  nome: z.string().min(1),
+});
+export const atualizarSecretariaSchema = z.object({
+  nome: z.string().min(1).optional(),
+  ativo: z.boolean().optional(),
+});
+
+export const criarEmpresaSchema = z.object({
+  razaoSocial: z.string().min(1),
+  nomeFantasia: z.string().optional(),
+  cnpj: z.string().optional(),
+  email: z.string().email().optional(),
+  telefone: z.string().optional(),
+  endereco: z.string().optional(),
+  municipio: z.string().optional(),
+});
+export const atualizarEmpresaSchema = criarEmpresaSchema.partial().extend({
+  ativo: z.boolean().optional(),
+});
+
+export const criarTeamSchema = z.object({
+  nome: z.string().min(1),
+  codigo: z.string().optional(),
+  tipo: z.string().optional(),
+  telefone: z.string().optional(),
+  areaAtuacao: z.string().optional(),
+  // opcional para ADMIN (obrigatório inferido do vínculo p/ EMPRESA)
+  empresaId: z.string().uuid().optional(),
+});
+export const atualizarTeamSchema = criarTeamSchema.partial().extend({
+  ativo: z.boolean().optional(),
+});
+
+export const atualizarUsuarioSchema = z.object({
+  nome: z.string().min(1).optional(),
+  senha: z.string().min(6).optional(),
+  ativo: z.boolean().optional(),
+  secretariaId: z.string().uuid().nullable().optional(),
+  empresaId: z.string().uuid().nullable().optional(),
+  equipeId: z.string().uuid().nullable().optional(),
+});
+
+export type CriarSecretariaInput = z.infer<typeof criarSecretariaSchema>;
+export type CriarEmpresaInput = z.infer<typeof criarEmpresaSchema>;
+export type CriarTeamInput = z.infer<typeof criarTeamSchema>;
+
 export const mudarStatusSchema = z.object({
   para: z.string(),
   observacao: z.string().optional(),

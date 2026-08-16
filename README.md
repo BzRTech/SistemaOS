@@ -65,7 +65,7 @@ pnpm test   # inclui isolamento entre empresas/equipes e a máquina de estados
 
 - [x] **Fase 0** — Fundação: monorepo, Prisma schema completo, docker-compose, seed, CI-ready.
 - [x] **Fase 1** — Auth & RBAC: login/JWT, guard de perfil, escopo organizacional por linha, testes de autorização.
-- [ ] Fase 2 — CRUD de Secretarias, Empresas, Equipes, Usuários.
+- [x] **Fase 2** — CRUD de Secretarias, Empresas, Equipes (com escopo) e Usuários.
 - [ ] Fase 3 — OS + workflow (máquina de estados já definida em `packages/shared`).
 - [ ] Fase 4 — Campo (mobile web): captura foto+GPS, check-in/out.
 - [ ] Fase 5 — Storage S3 + thumbnails.
