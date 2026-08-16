@@ -3,11 +3,13 @@
   "version": "2.0.0",
   "private": true,
   "description": "Sistema de Gestão de Ordens de Serviço — reescrita (web responsivo)",
-  "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "//": "start/dev servem o app LEGADO em produção (Render) até a reescrita alcançar paridade",
+    "start": "node legacy/server.js",
+    "dev": "node --watch legacy/server.js",
     "dev:api": "pnpm --filter @sistemaos/api start:dev",
     "dev:web": "pnpm --filter @sistemaos/web dev",
     "build": "pnpm -r build",
@@ -15,5 +17,15 @@
     "prisma:generate": "pnpm --filter @sistemaos/api prisma generate",
     "prisma:migrate": "pnpm --filter @sistemaos/api prisma migrate dev",
     "prisma:seed": "pnpm --filter @sistemaos/api prisma db seed"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.1",
+    "uuid": "^10.0.0"
   }
 }
