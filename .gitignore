@@ -1,3 +1,11 @@
 node_modules/
 .env
+.env.*
+!.env.example
 *.log
+dist/
+build/
+coverage/
+.turbo/
+.DS_Store
+apps/api/src/generated/

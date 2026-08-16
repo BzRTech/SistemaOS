@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sistemaos-postgres
+    environment:
+      POSTGRES_USER: sistemaos
+      POSTGRES_PASSWORD: sistemaos
+      POSTGRES_DB: sistemaos
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sistemaos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Storage S3-compatível para desenvolvimento local (produção usa AWS S3).
+  minio:
+    image: minio/minio:latest
+    container_name: sistemaos-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sistemaos
+      MINIO_ROOT_PASSWORD: sistemaos123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  miniodata:

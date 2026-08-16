@@ -1,0 +1,338 @@
+// SistemaOS 2.0 — schema de dados
+// Entidades de 1ª classe (secretarias, empresas, equipes) com FKs reais —
+// corrige o isolamento entre organizações que na v1 era derivado de `usuarios`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum Perfil {
+  ADMIN // Administrador Geral — visão global
+  SECRETARIA // abre e encaminha OS
+  EMPRESA // recebe OS, cadastra equipes, direciona
+  EQUIPE // executa em campo
+}
+
+enum StatusOS {
+  ABERTA
+  ENCAMINHADA
+  DIRECIONADA
+  EM_EXECUCAO
+  AGUARDANDO_VALIDACAO
+  CONCLUIDA
+  DEVOLVIDA
+  CANCELADA
+  SUSPENSA
+  IMPEDIDA
+}
+
+enum Prioridade {
+  BAIXA
+  NORMAL
+  ALTA
+  URGENTE
+  EMERGENCIAL
+}
+
+enum TipoFoto {
+  ANTES
+  DURANTE
+  DEPOIS
+  EVIDENCIA
+  IMPEDIMENTO
+  MATERIAL
+  OUTROS
+}
+
+enum TipoCheckpoint {
+  CHECK_IN
+  CHECK_OUT
+}
+
+// ----------------------------------------------------------------------------
+// Organizações e usuários
+// ----------------------------------------------------------------------------
+
+model Secretaria {
+  id        String   @id @default(uuid())
+  nome      String
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  usuarios      User[]
+  ordensServico ServiceOrder[]
+
+  @@map("secretarias")
+}
+
+model Empresa {
+  id           String   @id @default(uuid())
+  razaoSocial  String   @map("razao_social")
+  nomeFantasia String?  @map("nome_fantasia")
+  cnpj         String?  @unique
+  email        String?
+  telefone     String?
+  endereco     String?
+  municipio    String?
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  usuarios      User[]
+  equipes       Team[]
+  ordensServico ServiceOrder[]
+
+  @@map("empresas")
+}
+
+model Team {
+  id          String   @id @default(uuid())
+  nome        String
+  codigo      String?
+  tipo        String? // Pavimentação, Drenagem, Iluminação...
+  telefone    String?
+  areaAtuacao String?  @map("area_atuacao")
+  ativo       Boolean  @default(true)
+  criadoEm    DateTime @default(now()) @map("criado_em")
+
+  empresaId String  @map("empresa_id")
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+
+  membros       User[]         @relation("MembroEquipe")
+  ordensServico ServiceOrder[]
+
+  // código único dentro de cada empresa (não globalmente) — mata a colisão
+  // "Equipe 1" entre empresas diferentes da v1.
+  @@unique([empresaId, codigo])
+  @@map("teams")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  nome         String
+  email        String    @unique
+  senhaHash    String    @map("senha_hash")
+  perfil       Perfil
+  ativo        Boolean   @default(true)
+  criadoEm     DateTime  @default(now()) @map("criado_em")
+  ultimoAcesso DateTime? @map("ultimo_acesso")
+
+  // vínculo institucional (conforme o perfil)
+  secretariaId String?     @map("secretaria_id")
+  secretaria   Secretaria? @relation(fields: [secretariaId], references: [id])
+  empresaId    String?     @map("empresa_id")
+  empresa      Empresa?    @relation(fields: [empresaId], references: [id])
+  equipeId     String?     @map("equipe_id")
+  equipe       Team?       @relation("MembroEquipe", fields: [equipeId], references: [id])
+
+  ordensAbertas  ServiceOrder[]              @relation("Solicitante")
+  historico      ServiceOrderStatusHistory[]
+  fotos          ServiceOrderPhoto[]
+  checkpoints    ServiceOrderCheckpoint[]
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+  notificacoes   Notification[]
+
+  @@index([perfil])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @map("token_hash")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiraEm  DateTime @map("expira_em")
+  revogado  Boolean  @default(false)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@map("refresh_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// Ordens de serviço
+// ----------------------------------------------------------------------------
+
+model ServiceOrderCategory {
+  id            String  @id @default(uuid())
+  nome          String  @unique
+  minFotosAntes Int     @default(0) @map("min_fotos_antes")
+  minFotosDurante Int   @default(0) @map("min_fotos_durante")
+  minFotosDepois Int    @default(0) @map("min_fotos_depois")
+  toleranciaGpsM Int    @default(100) @map("tolerancia_gps_m")
+  ativo         Boolean @default(true)
+
+  ordensServico ServiceOrder[]
+
+  @@map("service_order_categories")
+}
+
+model SlaRule {
+  id         String     @id @default(uuid())
+  prioridade Prioridade @unique
+  horas      Int // prazo em horas
+  ativo      Boolean    @default(true)
+
+  @@map("sla_rules")
+}
+
+model ServiceOrder {
+  id        String     @id @default(uuid())
+  numero    String     @unique
+  titulo    String
+  descricao String?
+  status    StatusOS   @default(ABERTA)
+  prioridade Prioridade @default(NORMAL)
+
+  // localização
+  endereco    String?
+  numero_ende String? @map("numero_endereco")
+  complemento String?
+  bairro      String?
+  municipio   String?
+  cep         String?
+  latitude    Float?
+  longitude   Float?
+  referencia  String?
+
+  // prazos
+  dataAbertura       DateTime  @default(now()) @map("data_abertura")
+  prazoDesejado      DateTime? @map("prazo_desejado")
+  dataLimite         DateTime? @map("data_limite")
+  dataEncaminhamento DateTime? @map("data_encaminhamento")
+  dataDirecionamento DateTime? @map("data_direcionamento")
+  dataInicio         DateTime? @map("data_inicio")
+  dataConclusao      DateTime? @map("data_conclusao")
+
+  observacoes String?
+
+  // relacionamentos de escopo — a base da autorização por linha
+  secretariaId String?     @map("secretaria_id")
+  secretaria   Secretaria? @relation(fields: [secretariaId], references: [id])
+  empresaId    String?     @map("empresa_id")
+  empresa      Empresa?    @relation(fields: [empresaId], references: [id])
+  equipeId     String?     @map("equipe_id")
+  equipe       Team?       @relation(fields: [equipeId], references: [id])
+  categoriaId  String?     @map("categoria_id")
+  categoria    ServiceOrderCategory? @relation(fields: [categoriaId], references: [id])
+
+  solicitanteId String? @map("solicitante_id")
+  solicitante   User?   @relation("Solicitante", fields: [solicitanteId], references: [id])
+
+  historico   ServiceOrderStatusHistory[]
+  fotos       ServiceOrderPhoto[]
+  checkpoints ServiceOrderCheckpoint[]
+
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  @@index([status])
+  @@index([empresaId])
+  @@index([equipeId])
+  @@index([secretariaId])
+  @@index([criadoEm(sort: Desc)])
+  @@map("service_orders")
+}
+
+model ServiceOrderStatusHistory {
+  id             String    @id @default(uuid())
+  ordemId        String    @map("ordem_id")
+  ordem          ServiceOrder @relation(fields: [ordemId], references: [id], onDelete: Cascade)
+  statusAnterior StatusOS? @map("status_anterior")
+  statusNovo     StatusOS  @map("status_novo")
+  observacao     String?
+  latitude       Float?
+  longitude      Float?
+  usuarioId      String?   @map("usuario_id")
+  usuario        User?     @relation(fields: [usuarioId], references: [id])
+  perfil         Perfil?
+  criadoEm       DateTime  @default(now()) @map("criado_em")
+
+  @@index([ordemId])
+  @@map("service_order_status_history")
+}
+
+model ServiceOrderPhoto {
+  id          String   @id @default(uuid())
+  ordemId     String   @map("ordem_id")
+  ordem       ServiceOrder @relation(fields: [ordemId], references: [id], onDelete: Cascade)
+  tipo        TipoFoto @default(EVIDENCIA)
+  storageKey  String   @map("storage_key") // chave no S3 (não guardamos o binário)
+  thumbKey    String?  @map("thumb_key")
+  hash        String? // sha-256 do arquivo (integridade / anti-fraude)
+  latitude    Float?
+  longitude   Float?
+  accuracyM   Float?   @map("accuracy_m")
+  capturadaEm DateTime? @map("capturada_em") // data/hora do aparelho
+  recebidaEm  DateTime @default(now()) @map("recebida_em") // data/hora do servidor
+  observacao  String?
+  dispositivo String?
+  usuarioId   String?  @map("usuario_id")
+  usuario     User?    @relation(fields: [usuarioId], references: [id])
+
+  // idempotência de sync offline — mesmo uuid do cliente nunca duplica
+  clientUuid  String?  @unique @map("client_uuid")
+
+  @@index([ordemId])
+  @@map("service_order_photos")
+}
+
+model ServiceOrderCheckpoint {
+  id        String         @id @default(uuid())
+  ordemId   String         @map("ordem_id")
+  ordem     ServiceOrder   @relation(fields: [ordemId], references: [id], onDelete: Cascade)
+  tipo      TipoCheckpoint
+  latitude  Float?
+  longitude Float?
+  accuracyM Float?         @map("accuracy_m")
+  usuarioId String?        @map("usuario_id")
+  usuario   User?          @relation(fields: [usuarioId], references: [id])
+  criadoEm  DateTime       @default(now()) @map("criado_em")
+  clientUuid String?       @unique @map("client_uuid")
+
+  @@index([ordemId])
+  @@map("service_order_checkpoints")
+}
+
+// ----------------------------------------------------------------------------
+// Auditoria e notificações
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  usuarioId  String?  @map("usuario_id")
+  usuario    User?    @relation(fields: [usuarioId], references: [id])
+  perfil     Perfil?
+  acao       String
+  entidade   String
+  entidadeId String?  @map("entidade_id")
+  valorAntes Json?    @map("valor_antes")
+  valorDepois Json?   @map("valor_depois")
+  ip         String?
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@index([entidade, entidadeId])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  usuarioId String   @map("usuario_id")
+  usuario   User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo      String
+  titulo    String
+  corpo     String?
+  lida      Boolean  @default(false)
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@index([usuarioId, lida])
+  @@map("notifications")
+}
