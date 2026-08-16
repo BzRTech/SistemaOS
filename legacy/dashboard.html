@@ -142,6 +142,8 @@ tr:hover td { background: #fafbfc; }
   box-shadow: 0 0 0 1px rgba(0,0,0,0.4); cursor: pointer;
 }
 .mkr-rec { width: 22px; height: 22px; font-size: 11px; line-height: 18px; text-align: center; font-weight: 800; color: white; }
+/* ponto de GPS da foto: cor = status, com anel extra p/ diferenciar do ponto cadastrado */
+.mkr-gps { width: 18px; height: 18px; box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 4px rgba(23,162,184,0.35); }
 .leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
 .leaflet-popup-content .pop-num { font-family: monospace; font-weight: 700; color: var(--primaria); }
 .leaflet-popup-content a { color: var(--azul); text-decoration: none; font-weight: 600; }
@@ -205,7 +207,7 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
         <span><span class="leg-dot" style="background:#f5a623"></span> Aguardando Validação</span>
         <span><span class="leg-dot" style="background:#2d9e65"></span> Fechada</span>
         <span><span class="leg-dot" style="background:#d32f2f"></span> Cancelada</span>
-        <span><span class="leg-dot" style="background:#17a2b8"></span> 📍 GPS da Foto de Início</span>
+        <span><span class="leg-dot" style="background:#5a6473;box-shadow:0 0 0 3px rgba(23,162,184,0.35)"></span> 📍 GPS da Foto (cor = status)</span>
         <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente</span>
       </div>
     </div>
@@ -298,7 +300,7 @@ function renderMapa(ordens) {
   let primeiraVez = false;
   if (!mapa) {
     document.getElementById('mapaWrap').innerHTML = '<div id="mapa"></div>';
-    mapa = L.map('mapa', { scrollWheelZoom: false });
+    mapa = L.map('mapa', { scrollWheelZoom: true });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap',
     }).addTo(mapa);
@@ -330,8 +332,9 @@ function renderMapa(ordens) {
   for (const o of ordens) {
     const gpsI = gpsDe(o.gpsInicio);
     if (gpsI) {
-      const icon = L.divIcon({ className: '', html: '<div class="mkr" style="background:#17a2b8;border-color:#fff"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
-      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início</div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
+      const corGps = COR_STATUS[o.status] || '#5a6473';
+      const icon = L.divIcon({ className: '', html: `<div class="mkr mkr-gps" style="background:${corGps}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início · <span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
       L.marker(gpsI, { icon }).bindPopup(popup).addTo(camadaPontos);
       pontos.push(gpsI);
     }
