@@ -310,8 +310,18 @@ textarea.form-input { min-height: 80px; resize: vertical; }
 }
 
 /* CHIPS */
-.filter-chips { display: flex; gap: 7px; overflow-x: auto; margin-bottom: 14px; scrollbar-width: none; padding-bottom: 3px; }
+.chips-wrap { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+.filter-chips { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; padding-bottom: 3px; flex: 1 1 auto; scroll-behavior: smooth; }
 .filter-chips::-webkit-scrollbar { display: none; }
+.chips-nav {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
+  border: 1.5px solid var(--cinza-borda); background: white; color: var(--primaria-escura);
+  font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.chips-nav:active { background: var(--cinza-bg); }
+.chips-nav:disabled { opacity: 0.35; cursor: default; }
 .chip {
   white-space: nowrap; padding: 6px 13px;
   border-radius: 20px; font-size: 12px; font-weight: 600;
@@ -514,15 +524,19 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
       <option value="todos">🏷️ Todas as tags</option>
     </select>
   </div>
-  <div class="filter-chips">
-    <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
-    <div class="chip" onclick="setFiltro('aberta',this)">📋 Abertas</div>
-    <div class="chip" onclick="setFiltro('encaminhada',this)">📤 Encaminhadas</div>
-    <div class="chip" onclick="setFiltro('direcionada',this)">👥 Direcionadas</div>
-    <div class="chip" onclick="setFiltro('em_execucao',this)">🔧 Em Execução</div>
-    <div class="chip" onclick="setFiltro('aguardando_validacao',this)">⏳ Aguard. Valid.</div>
-    <div class="chip" onclick="setFiltro('fechada',this)">✅ Fechadas</div>
-    <div class="chip" onclick="setFiltro('reaberta',this)">🔄 Reabertas</div>
+  <div class="chips-wrap">
+    <button type="button" class="chips-nav" id="chipsPrev" onclick="rolarChips(-1)" aria-label="Filtros anteriores">‹</button>
+    <div class="filter-chips" id="filterChips" onscroll="atualizarSetasChips()">
+      <div class="chip active" onclick="setFiltro('todos',this)">Todos</div>
+      <div class="chip" onclick="setFiltro('aberta',this)">📋 Abertas</div>
+      <div class="chip" onclick="setFiltro('encaminhada',this)">📤 Encaminhadas</div>
+      <div class="chip" onclick="setFiltro('direcionada',this)">👥 Direcionadas</div>
+      <div class="chip" onclick="setFiltro('em_execucao',this)">🔧 Em Execução</div>
+      <div class="chip" onclick="setFiltro('aguardando_validacao',this)">⏳ Aguard. Valid.</div>
+      <div class="chip" onclick="setFiltro('fechada',this)">✅ Fechadas</div>
+      <div class="chip" onclick="setFiltro('reaberta',this)">🔄 Reabertas</div>
+    </div>
+    <button type="button" class="chips-nav" id="chipsNext" onclick="rolarChips(1)" aria-label="Próximos filtros">›</button>
   </div>
   <div id="listaOS">
     <div class="loading"><div class="spinner"></div><p>Carregando ordens de serviço...</p></div>
@@ -1020,6 +1034,7 @@ function showSection(id) {
   document.getElementById('fabNova').style.display = id === 'lista' ? 'flex' : 'none';
   if (id === 'relatorio') renderRelatorio();
   if (id === 'nova') { limparFormNova(); buscarProximoNumero(); }
+  if (id === 'lista') setTimeout(atualizarSetasChips, 0);
 }
 
 // ── NÚMERO OS ─────────────────────────────────────────────────────────────────
@@ -1260,6 +1275,26 @@ function setFiltro(status, el) {
 function setBairro(b) { S.bairroFiltro = b; renderLista(); }
 function setTag(t) { S.tagFiltro = t; renderLista(); }
 function filtrarOS(texto) { S.busca = texto; renderLista(); }
+
+// ── RÉGUA DE FILTROS: rolar pros lados ──────────────────────────────────────────
+function rolarChips(dir) {
+  const el = document.getElementById('filterChips');
+  if (!el) return;
+  el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.7), behavior: 'smooth' });
+}
+function atualizarSetasChips() {
+  const el = document.getElementById('filterChips');
+  const prev = document.getElementById('chipsPrev');
+  const next = document.getElementById('chipsNext');
+  if (!el || !prev || !next) return;
+  const temOverflow = el.scrollWidth > el.clientWidth + 2;
+  // sem overflow (desktop largo): esconde as setas
+  prev.style.display = next.style.display = temOverflow ? '' : 'none';
+  prev.disabled = el.scrollLeft <= 1;
+  next.disabled = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+}
+window.addEventListener('resize', atualizarSetasChips);
+window.addEventListener('load', atualizarSetasChips);
 
 function popularFiltroBairro() {
   const sel = document.getElementById('filtroBairro');
