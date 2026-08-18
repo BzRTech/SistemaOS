@@ -94,6 +94,9 @@ async function iniciarBanco() {
   // Guarda a validação do gestor da empresa (etapa anterior à validação SEINFRA).
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS validado_gestor_por TEXT`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS validado_gestor_em TIMESTAMPTZ`);
+  // Arquivo de TODAS as fotos de campo (início/fim) de todos os ciclos — preserva
+  // as fotos das execuções rejeitadas quando a OS é reaberta e refeita.
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS fotos_campo JSONB DEFAULT '[]'`);
 
   // Migração: remover NOT NULL de solicitante (para compatibilidade)
   try {
@@ -320,6 +323,16 @@ function parseFotos(v) {
   return [v];
 }
 
+// Arquivo de fotos de campo (JSONB) — pode vir como array (pg) ou string JSON.
+// Cada item: { tipo:'inicio'|'fim', ciclo, foto, gps, dataHora, criadoEm, refeita? }
+function parseFotosCampo(v) {
+  if (!v) return [];
+  if (typeof v === 'string') {
+    try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; }
+  }
+  return Array.isArray(v) ? v : [];
+}
+
 // normaliza para gravação: 0 fotos → NULL, 1 → texto puro, 2+ → JSON
 function serializarFotos(v) {
   const fotos = Array.isArray(v) ? v.filter(Boolean) : parseFotos(v);
@@ -358,6 +371,7 @@ function mapRow(r, incluirFotos) {
     validadoEm: r.validado_em || null,
     validadoGestorPor: r.validado_gestor_por || null,
     validadoGestorEm: r.validado_gestor_em || null,
+    fotosCampo: incluirFotos ? parseFotosCampo(r.fotos_campo) : undefined,
     motivoRejeicao: r.motivo_rejeicao || null,
     dataSolicitacao: r.data_solicitacao || null,
     fotosPdf: incluirFotos ? parseFotos(r.fotos_pdf) : undefined,
@@ -894,12 +908,21 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
       usuario: req.usuario.id,
     });
 
+    // Arquiva a foto de início — um novo início (após reabertura) começa um novo ciclo.
+    const fotosCampo = parseFotosCampo(os.fotos_campo);
+    const ciclo = fotosCampo.filter(f => f.tipo === 'inicio').length + 1;
+    if (foto) fotosCampo.push({
+      tipo: 'inicio', ciclo, foto, gps: gps || null,
+      dataHora: normalizarDataHora(dataHora), criadoEm: new Date().toISOString(),
+    });
+
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3,
-         status = 'em_execucao', historico = $4, atualizado_em = NOW()
+         status = 'em_execucao', historico = $4, fotos_campo = $6, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
-      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id]
+      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id,
+       JSON.stringify(fotosCampo)]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-inicio:', e.message); res.status(500).json({ erro: e.message }); }
@@ -934,12 +957,21 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
       usuario: req.usuario.id,
     });
 
+    // Arquiva a foto de fim no ciclo de execução atual.
+    const fotosCampo = parseFotosCampo(os.fotos_campo);
+    const ciclo = Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length);
+    if (foto) fotosCampo.push({
+      tipo: 'fim', ciclo, foto, gps: gps || null,
+      dataHora: normalizarDataHora(dataHora), criadoEm: new Date().toISOString(),
+    });
+
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          foto_fim = $1, gps_fim = $2, data_fim_servico = $3,
-         status = 'aguardando_gestor', historico = $4, atualizado_em = NOW()
+         status = 'aguardando_gestor', historico = $4, fotos_campo = $6, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
-      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id]
+      [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id,
+       JSON.stringify(fotosCampo)]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-fim:', e.message); res.status(500).json({ erro: e.message }); }
@@ -983,13 +1015,35 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
       usuario: req.usuario.id,
     });
 
+    // Refazer substitui a foto mais recente do mesmo tipo no arquivo (mesma
+    // tentativa), sem criar um novo registro.
+    const fotosCampo = parseFotosCampo(os.fotos_campo);
+    let substituida = false;
+    for (let i = fotosCampo.length - 1; i >= 0; i--) {
+      if (fotosCampo[i].tipo === tipo) {
+        fotosCampo[i] = {
+          ...fotosCampo[i], foto, gps: gps || null,
+          dataHora: normalizarDataHora(dataHora), refeita: true,
+          criadoEm: new Date().toISOString(),
+        };
+        substituida = true;
+        break;
+      }
+    }
+    if (!substituida) {
+      const ciclo = tipo === 'inicio'
+        ? fotosCampo.filter(f => f.tipo === 'inicio').length + 1
+        : Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length);
+      fotosCampo.push({ tipo, ciclo, foto, gps: gps || null, dataHora: normalizarDataHora(dataHora), refeita: true, criadoEm: new Date().toISOString() });
+    }
+
     const campos = tipo === 'inicio'
       ? 'foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3'
       : 'foto_fim = $1, gps_fim = $2, data_fim_servico = $3';
     const { rows } = await pool.query(
-      `UPDATE ordens_servico SET ${campos}, historico = $4, atualizado_em = NOW()
+      `UPDATE ordens_servico SET ${campos}, historico = $4, fotos_campo = $6, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
-      [foto, gps, normalizarDataHora(dataHora), JSON.stringify(historico), id]
+      [foto, gps, normalizarDataHora(dataHora), JSON.stringify(historico), id, JSON.stringify(fotosCampo)]
     );
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST atualizar-foto:', e.message); res.status(500).json({ erro: e.message }); }
