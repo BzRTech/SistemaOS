@@ -28,10 +28,19 @@ app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
 
-const PERFIS_VALIDOS = ['admin', 'seinfra', 'goldman', 'equipe'];
+// Perfis de acesso:
+//  admin      — acesso total
+//  seinfra    — abre/importa OS, direciona p/ empresa e faz a validação final
+//  assistente — auxiliar da SEINFRA: só abre OS e escolhe a empresa (não valida)
+//  goldman    — empresa: recebe a OS e direciona para a equipe de campo
+//  gestor     — responsável pela empresa: valida (aceita/rejeita) o serviço da equipe
+//  equipe     — executa em campo
+const PERFIS_VALIDOS = ['admin', 'seinfra', 'assistente', 'goldman', 'gestor', 'equipe'];
+// Perfis vinculados a uma empresa (campo `empresa` obrigatório).
+const PERFIS_COM_EMPRESA = ['goldman', 'gestor'];
 // Empresas são dinâmicas (cadastradas via usuários goldman). Equipes são os 6 slots por empresa.
 const EQUIPES_VALIDAS = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
-const STATUS_VALIDOS = ['aberta', 'encaminhada', 'direcionada', 'em_execucao', 'aguardando_validacao', 'fechada', 'reaberta'];
+const STATUS_VALIDOS = ['aberta', 'encaminhada', 'direcionada', 'em_execucao', 'aguardando_gestor', 'aguardando_validacao', 'fechada', 'reaberta'];
 
 async function iniciarBanco() {
   await pool.query(`
@@ -80,6 +89,11 @@ async function iniciarBanco() {
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS motivo_rejeicao TEXT`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS data_solicitacao DATE`);
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS fotos_pdf TEXT`);
+  // Rastreia quem abriu a OS — o assistente só edita/exclui as próprias OS.
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS criado_por TEXT`);
+  // Guarda a validação do gestor da empresa (etapa anterior à validação SEINFRA).
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS validado_gestor_por TEXT`);
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS validado_gestor_em TIMESTAMPTZ`);
 
   // Migração: remover NOT NULL de solicitante (para compatibilidade)
   try {
@@ -183,7 +197,7 @@ async function iniciarBanco() {
       email         TEXT UNIQUE NOT NULL,
       senha_hash    TEXT NOT NULL,
       perfil        TEXT NOT NULL DEFAULT 'goldman'
-                    CHECK (perfil IN ('admin', 'seinfra', 'goldman', 'equipe')),
+                    CHECK (perfil IN ('admin', 'seinfra', 'assistente', 'goldman', 'gestor', 'equipe')),
       equipe_nome   TEXT,
       ativo         BOOLEAN NOT NULL DEFAULT true,
       criado_em     TIMESTAMPTZ DEFAULT NOW(),
@@ -342,6 +356,8 @@ function mapRow(r, incluirFotos) {
     dataFimServico: r.data_fim_servico || null,
     validadoPor: r.validado_por || null,
     validadoEm: r.validado_em || null,
+    validadoGestorPor: r.validado_gestor_por || null,
+    validadoGestorEm: r.validado_gestor_em || null,
     motivoRejeicao: r.motivo_rejeicao || null,
     dataSolicitacao: r.data_solicitacao || null,
     fotosPdf: incluirFotos ? parseFotos(r.fotos_pdf) : undefined,
@@ -376,6 +392,10 @@ const somenteAdmin   = autenticar(['admin']);
 const adminOuSeinfra = autenticar(['admin', 'seinfra']);
 const adminOuGoldman = autenticar(['admin', 'goldman']);
 const adminOuEquipe  = autenticar(['admin', 'equipe']);
+// Quem pode abrir/importar/direcionar OS: SEINFRA e seus assistentes.
+const criadorOS      = autenticar(['admin', 'seinfra', 'assistente']);
+// Quem pode validar o serviço: gestor (etapa da empresa) e SEINFRA (etapa final).
+const validadores    = autenticar(['admin', 'seinfra', 'gestor']);
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
@@ -430,12 +450,12 @@ app.post('/api/auth/usuarios', somenteAdmin, async (req, res) => {
     if (!empresa || !String(empresa).trim())
       return res.status(400).json({ erro: 'empresa obrigatória para perfil equipe' });
   }
-  if (perfil === 'goldman' && (!empresa || !String(empresa).trim()))
-    return res.status(400).json({ erro: 'empresa (nome da empresa) obrigatória para perfil goldman' });
+  if (PERFIS_COM_EMPRESA.includes(perfil) && (!empresa || !String(empresa).trim()))
+    return res.status(400).json({ erro: 'empresa (nome da empresa) obrigatória para os perfis Empresa e Gestor' });
   try {
     const hash = await bcrypt.hash(String(senha), 12);
     const eqNome = perfil === 'equipe' ? equipe_nome : null;
-    const empNome = (perfil === 'equipe' || perfil === 'goldman') ? String(empresa).trim() : null;
+    const empNome = (perfil === 'equipe' || PERFIS_COM_EMPRESA.includes(perfil)) ? String(empresa).trim() : null;
     const { rows } = await pool.query(
       `INSERT INTO usuarios (id, nome, email, senha_hash, perfil, equipe_nome, empresa)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -471,8 +491,8 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
         const eqNome = perfilFinal === 'equipe' ? (equipe_nome || null) : null;
         vals.push(eqNome); campos.push(`equipe_nome = $${vals.length}`);
       }
-      if (empresa !== undefined || perfilFinal === 'equipe' || perfilFinal === 'goldman') {
-        const empNome = (perfilFinal === 'equipe' || perfilFinal === 'goldman')
+      if (empresa !== undefined || perfilFinal === 'equipe' || PERFIS_COM_EMPRESA.includes(perfilFinal)) {
+        const empNome = (perfilFinal === 'equipe' || PERFIS_COM_EMPRESA.includes(perfilFinal))
           ? (empresa ? String(empresa).trim() : null) : null;
         vals.push(empNome); campos.push(`empresa = $${vals.length}`);
       }
@@ -534,7 +554,7 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
       params.push(req.usuario.equipe_nome || '');
       params.push(req.usuario.empresa || '');
       filtro = `WHERE equipe_designada = $${params.length - 1} AND empresa_designada = $${params.length}`;
-    } else if (req.usuario.perfil === 'goldman') {
+    } else if (req.usuario.perfil === 'goldman' || req.usuario.perfil === 'gestor') {
       params.push(req.usuario.empresa || '');
       filtro = `WHERE empresa_designada = $${params.length}`;
     }
@@ -570,7 +590,8 @@ app.get('/api/ordens/:id', qualquerUsuario, async (req, res) => {
         (os.equipe_designada !== req.usuario.equipe_nome ||
          os.empresa_designada !== req.usuario.empresa))
       return res.status(403).json({ erro: 'Sem acesso a esta O.S.' });
-    if (req.usuario.perfil === 'goldman' && os.empresa_designada !== req.usuario.empresa)
+    if ((req.usuario.perfil === 'goldman' || req.usuario.perfil === 'gestor') &&
+        os.empresa_designada !== req.usuario.empresa)
       return res.status(403).json({ erro: 'Sem acesso a esta O.S.' });
     res.json(mapRow(os, true));
   } catch (e) { console.error('GET /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
@@ -580,9 +601,9 @@ const COLUNAS_INSERT = `
   id, numero, tipo, descricao, endereco, bairro, referencia,
   solicitante, responsavel, equipe, prioridade, prazo, status,
   ocorrencias, primeira_ocorrencia, tag, foto_abertura, historico, criado_em, data_solicitacao,
-  empresa_designada, equipe_designada, fotos_pdf`;
+  empresa_designada, equipe_designada, fotos_pdf, criado_por`;
 
-function valoresInsert(o, numero, criadoEm) {
+function valoresInsert(o, numero, criadoEm, criadoPor) {
   const data = criadoEm || new Date().toISOString();
   const empresaDesignada = o.empresaDesignada || o.empresa_designada || null;
   const equipeDesignada = o.equipeDesignada || o.equipe_designada || null;
@@ -607,11 +628,12 @@ function valoresInsert(o, numero, criadoEm) {
     empresaDesignada,
     equipeDesignada,
     serializarFotos(o.fotosPdf || o.fotos_pdf),
+    criadoPor || null,
   ];
 }
 
-// Criar OS (admin e seinfra)
-app.post('/api/ordens', adminOuSeinfra, async (req, res) => {
+// Criar OS (admin, seinfra e assistente)
+app.post('/api/ordens', criadorOS, async (req, res) => {
   const client = await pool.connect();
   try {
     const o = req.body;
@@ -619,7 +641,7 @@ app.post('/api/ordens', adminOuSeinfra, async (req, res) => {
     await client.query('LOCK TABLE ordens_servico IN SHARE ROW EXCLUSIVE MODE');
     const ano = new Date().getFullYear();
     const numero = fmtNumero(ano, await gerarNumeroOS(client, ano));
-    const vals = valoresInsert(o, numero);
+    const vals = valoresInsert(o, numero, null, req.usuario.id);
     const { rows } = await client.query(
       `INSERT INTO ordens_servico (${COLUNAS_INSERT})
        VALUES (${vals.map((_, i) => '$' + (i + 1)).join(',')})
@@ -638,7 +660,7 @@ app.post('/api/ordens', adminOuSeinfra, async (req, res) => {
 });
 
 // Importação em lote (CSV processado no frontend)
-app.post('/api/ordens/importar', adminOuSeinfra, async (req, res) => {
+app.post('/api/ordens/importar', criadorOS, async (req, res) => {
   const lista = req.body && req.body.ordens;
   if (!Array.isArray(lista) || !lista.length) {
     return res.status(400).json({ erro: 'Envie { ordens: [...] } com pelo menos 1 item' });
@@ -669,7 +691,7 @@ app.post('/api/ordens/importar', adminOuSeinfra, async (req, res) => {
           solicitante: (o.solicitante && String(o.solicitante).trim()) || 'Importação CSV',
           obsAbertura: 'Importada via CSV' + (o.tag ? ` — ${String(o.tag).trim()}` : ''),
         };
-        const vals = valoresInsert(item, numero, validarData(o.criadoEm));
+        const vals = valoresInsert(item, numero, validarData(o.criadoEm), req.usuario.id);
         const base = params.length;
         params.push(...vals);
         return '(' + vals.map((_, k) => '$' + (base + k + 1)).join(',') + ')';
@@ -704,6 +726,9 @@ app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
     const atual = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
     if (!atual.rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
     const cur = atual.rows[0];
+    // Assistente só edita as OS que ele mesmo abriu.
+    if (req.usuario.perfil === 'assistente' && cur.criado_por !== req.usuario.id)
+      return res.status(403).json({ erro: 'Você só pode editar as O.S. que abriu.' });
     const manter = (novo, antigo) => (novo !== undefined ? novo : antigo);
     const fotoAbertura  = o.fotoAbertura  !== undefined ? serializarFotos(o.fotoAbertura)  : cur.foto_abertura;
     const fotoConclusao = o.fotoConclusao !== undefined ? serializarFotos(o.fotoConclusao) : cur.foto_conclusao;
@@ -734,8 +759,15 @@ app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-app.delete('/api/ordens/:id', adminOuSeinfra, async (req, res) => {
+app.delete('/api/ordens/:id', criadorOS, async (req, res) => {
   try {
+    // Assistente só exclui as OS que ele mesmo abriu.
+    if (req.usuario.perfil === 'assistente') {
+      const { rows } = await pool.query('SELECT criado_por FROM ordens_servico WHERE id = $1', [req.params.id]);
+      if (!rows.length) return res.status(404).json({ erro: 'Nao encontrada' });
+      if (rows[0].criado_por !== req.usuario.id)
+        return res.status(403).json({ erro: 'Você só pode excluir as O.S. que abriu.' });
+    }
     await pool.query('DELETE FROM ordens_servico WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (e) { console.error('DELETE /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
@@ -743,8 +775,8 @@ app.delete('/api/ordens/:id', adminOuSeinfra, async (req, res) => {
 
 // ─── Workflow Endpoints ───────────────────────────────────────────────────────
 
-// Direcionar OS para uma empresa (seinfra, admin) → status = encaminhada
-app.post('/api/ordens/:id/direcionar', adminOuSeinfra, async (req, res) => {
+// Direcionar OS para uma empresa (seinfra, assistente, admin) → status = encaminhada
+app.post('/api/ordens/:id/direcionar', criadorOS, async (req, res) => {
   try {
     const { id } = req.params;
     const { empresa } = req.body;
@@ -792,8 +824,9 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
 
     const os = atual[0];
-    // Só é possível definir/trocar a equipe antes do serviço começar
-    if (!['encaminhada', 'direcionada'].includes(os.status))
+    // Só é possível definir/trocar a equipe antes do serviço começar, ou quando a
+    // OS foi reaberta (rejeitada) e volta para a empresa escolher outra equipe.
+    if (!['encaminhada', 'direcionada', 'reaberta'].includes(os.status))
       return res.status(400).json({ erro: 'Só é possível definir ou trocar a equipe antes do início do serviço' });
     // Goldman só encaminha OS da própria empresa e para equipes cadastradas nela
     const empresaOS = os.empresa_designada;
@@ -895,16 +928,16 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
 
     const historico = parseHistorico(os.historico);
     historico.push({
-      status: 'aguardando_validacao',
+      status: 'aguardando_gestor',
       data: new Date().toISOString(),
-      obs: `Fim de serviço registrado por ${req.usuario.nome} — aguardando validação SEINFRA`,
+      obs: `Fim de serviço registrado por ${req.usuario.nome} — aguardando validação do gestor da empresa`,
       usuario: req.usuario.id,
     });
 
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          foto_fim = $1, gps_fim = $2, data_fim_servico = $3,
-         status = 'aguardando_validacao', historico = $4, atualizado_em = NOW()
+         status = 'aguardando_gestor', historico = $4, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
       [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id]
     );
@@ -935,8 +968,8 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
       return res.status(403).json({ erro: 'Esta OS não está designada para sua equipe' });
 
     // Só permite trocar enquanto a OS não foi fechada/cancelada
-    const inicioEditavel = ['em_execucao', 'aguardando_validacao'].includes(os.status);
-    const fimEditavel = os.status === 'aguardando_validacao';
+    const inicioEditavel = ['em_execucao', 'aguardando_gestor', 'aguardando_validacao'].includes(os.status);
+    const fimEditavel = ['aguardando_gestor', 'aguardando_validacao'].includes(os.status);
     if (tipo === 'inicio' && !inicioEditavel)
       return res.status(400).json({ erro: 'A foto de início só pode ser trocada durante a execução do serviço' });
     if (tipo === 'fim' && !fimEditavel)
@@ -962,8 +995,14 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
   } catch (e) { console.error('POST atualizar-foto:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Validar OS (seinfra, admin)
-app.post('/api/ordens/:id/validar', adminOuSeinfra, async (req, res) => {
+// Validar OS — fluxo em duas etapas:
+//   1) aguardando_gestor      → o gestor da empresa valida o serviço da equipe
+//      aceita  → aguardando_validacao (segue para a SEINFRA)
+//      rejeita → reaberta (volta p/ a empresa escolher outra equipe)
+//   2) aguardando_validacao   → a SEINFRA faz a validação final
+//      aceita  → fechada
+//      rejeita → reaberta
+app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
   try {
     const { id } = req.params;
     const { aceitar, motivo } = req.body;
@@ -972,40 +1011,82 @@ app.post('/api/ordens/:id/validar', adminOuSeinfra, async (req, res) => {
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
 
     const os = atual[0];
+    const perfil = req.usuario.perfil;
     const historico = parseHistorico(os.historico);
+    const agora = new Date().toISOString();
 
-    if (aceitar) {
-      historico.push({
-        status: 'fechada',
-        data: new Date().toISOString(),
-        obs: `OS validada e aceita por ${req.usuario.nome}`,
-        usuario: req.usuario.id,
-      });
-      const { rows } = await pool.query(
-        `UPDATE ordens_servico SET
-           status = 'fechada', validado_por = $1, validado_em = NOW(),
-           historico = $2, atualizado_em = NOW(), concluido_em = NOW()
-         WHERE id = $3 RETURNING *`,
-        [req.usuario.id, JSON.stringify(historico), id]
-      );
-      res.json(mapRow(rows[0], true));
-    } else {
+    const rejeitar = () => {
       const motivoRejeicao = motivo || 'Sem motivo informado';
       historico.push({
         status: 'reaberta',
-        data: new Date().toISOString(),
-        obs: `OS rejeitada por ${req.usuario.nome}: ${motivoRejeicao}`,
+        data: agora,
+        obs: `OS rejeitada por ${req.usuario.nome} (${perfil}): ${motivoRejeicao}`,
         usuario: req.usuario.id,
       });
-      const { rows } = await pool.query(
+      // Volta para a empresa escolher a equipe — mantém a empresa, zera a equipe.
+      return pool.query(
         `UPDATE ordens_servico SET
            status = 'reaberta', motivo_rejeicao = $1, equipe_designada = NULL,
            historico = $2, atualizado_em = NOW()
          WHERE id = $3 RETURNING *`,
         [motivoRejeicao, JSON.stringify(historico), id]
       );
-      res.json(mapRow(rows[0], true));
+    };
+
+    // ── Etapa 1: validação do gestor da empresa ──
+    if (os.status === 'aguardando_gestor') {
+      if (perfil === 'seinfra')
+        return res.status(400).json({ erro: 'Esta O.S. ainda aguarda a validação do gestor da empresa.' });
+      if (perfil === 'gestor' && req.usuario.empresa && os.empresa_designada &&
+          req.usuario.empresa !== os.empresa_designada)
+        return res.status(403).json({ erro: 'Esta O.S. pertence a outra empresa.' });
+
+      if (aceitar) {
+        historico.push({
+          status: 'aguardando_validacao',
+          data: agora,
+          obs: `Serviço validado pelo gestor ${req.usuario.nome} — aguardando validação SEINFRA`,
+          usuario: req.usuario.id,
+        });
+        const { rows } = await pool.query(
+          `UPDATE ordens_servico SET
+             status = 'aguardando_validacao', validado_gestor_por = $1, validado_gestor_em = NOW(),
+             historico = $2, atualizado_em = NOW()
+           WHERE id = $3 RETURNING *`,
+          [req.usuario.id, JSON.stringify(historico), id]
+        );
+        return res.json(mapRow(rows[0], true));
+      }
+      const { rows } = await rejeitar();
+      return res.json(mapRow(rows[0], true));
     }
+
+    // ── Etapa 2: validação final da SEINFRA ──
+    if (os.status === 'aguardando_validacao') {
+      if (perfil === 'gestor')
+        return res.status(400).json({ erro: 'A validação do gestor já foi concluída — aguarda a validação final da SEINFRA.' });
+
+      if (aceitar) {
+        historico.push({
+          status: 'fechada',
+          data: agora,
+          obs: `OS validada e aceita por ${req.usuario.nome}`,
+          usuario: req.usuario.id,
+        });
+        const { rows } = await pool.query(
+          `UPDATE ordens_servico SET
+             status = 'fechada', validado_por = $1, validado_em = NOW(),
+             historico = $2, atualizado_em = NOW(), concluido_em = NOW()
+           WHERE id = $3 RETURNING *`,
+          [req.usuario.id, JSON.stringify(historico), id]
+        );
+        return res.json(mapRow(rows[0], true));
+      }
+      const { rows } = await rejeitar();
+      return res.json(mapRow(rows[0], true));
+    }
+
+    return res.status(400).json({ erro: 'Esta O.S. não está em fase de validação.' });
   } catch (e) { console.error('POST validar:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
@@ -1051,7 +1132,7 @@ app.get('/api/equipes', qualquerUsuario, async (req, res) => {
 let _pdfParse = null;
 try { _pdfParse = require('pdf-parse'); } catch {}
 
-app.post('/api/protocolos/importar-pdf', adminOuSeinfra, async (req, res) => {
+app.post('/api/protocolos/importar-pdf', criadorOS, async (req, res) => {
   if (!_pdfParse) {
     return res.status(500).json({ erro: 'Dependência pdf-parse não instalada. Execute npm install no servidor.' });
   }
@@ -1084,6 +1165,18 @@ app.post('/api/protocolos/importar-pdf', adminOuSeinfra, async (req, res) => {
       if (idx >= 0 && idx + 1 < lines.length) {
         const nextLine = lines[idx + 1];
         if (nextLine && !/^[A-ZÁÉÍÓÚÃÕÇ\s]{5,}$/.test(nextLine)) return nextLine;
+      }
+      return '';
+    };
+
+    // Valor após um rótulo NA MESMA LINHA, mesmo quando o rótulo não começa
+    // a linha. Ex.: "Insira a rua do problema: Rua Ciro Trocolli" → "Rua Ciro Trocolli".
+    // Aceita ':', '::', '.' ou '-' como separador. Retorna o 1º match não vazio.
+    const campoAposLabel = (labelPattern) => {
+      const re = new RegExp(labelPattern + '\\s*[:.\\-]+\\s*(.+)', 'i');
+      for (const l of lines) {
+        const m = l.match(re);
+        if (m && m[1] && m[1].trim()) return m[1].trim();
       }
       return '';
     };
@@ -1148,18 +1241,29 @@ app.post('/api/protocolos/importar-pdf', adminOuSeinfra, async (req, res) => {
       }
     }
 
-    // Endereço
-    const rua    = valorDe('Rua');
-    const numero = valorDe('N[uú]mero');
-    const endereco = (rua && numero && numero !== '0000')
+    // Endereço — o protocolo SEN usa rótulos longos ("Insira a rua do problema",
+    // "Insira número da residência próximo ao problema") com o valor na MESMA linha.
+    // Tenta esses rótulos primeiro e só então cai no genérico valorDe().
+    const rua = campoAposLabel('Insira a rua do problema') ||
+                campoAposLabel('rua do problema') ||
+                valorDe('Rua');
+    let numero = campoAposLabel('Insira n[uú]mero[^:.\\-]*') ||
+                 campoAposLabel('n[uú]mero da resid[eê]ncia[^:.\\-]*') ||
+                 valorDe('N[uú]mero');
+    // Descarta números-placeholder e ruído (mantém só dígitos/'S/N').
+    numero = (numero || '').replace(/[^0-9]/g, '');
+    const endereco = (rua && numero && numero !== '0000' && numero !== '0')
       ? `${rua}, ${numero}`
       : rua || '';
 
     // Bairro
-    const bairro = valorDe('Bairro');
+    const bairro = campoAposLabel('Insira o bairro do problema') ||
+                   campoAposLabel('bairro do problema') ||
+                   valorDe('Bairro');
 
     // Referência
-    const referencia = between('ponto de refer[eê]ncia', 'Qual o|observa[çc]|FOTO') ||
+    const referencia = campoAposLabel('ponto de refer[eê]ncia') ||
+                       between('ponto de refer[eê]ncia', 'Qual o|observa[çc]|FOTO') ||
                        valorDe('ponto de refer[eê]ncia');
 
     // Descrição: problema + observação
