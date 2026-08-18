@@ -697,7 +697,7 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
 
 <!-- ═══ RELATÓRIO ═══ -->
 <div class="section content" id="section-relatorio">
-  <a href="/dashboard.html" target="_blank" class="btn btn-primary" style="margin-bottom:12px;text-decoration:none">
+  <a href="/dashboard.html" class="btn btn-primary" style="margin-bottom:12px;text-decoration:none">
     📺 Abrir Dashboard completo
   </a>
   <div class="form-card">
@@ -1019,15 +1019,15 @@ async function iniciarSessao() {
     const orgTxt = usuario.equipe_nome ? ` · ${usuario.equipe_nome}` : (usuario.empresa ? ` · ${usuario.empresa}` : '');
     document.getElementById('usuarioSub').textContent = `${usuario.nome} · ${perfilDisplay}${orgTxt}`;
     document.getElementById('linkUsuarios').style.display = usuario.perfil === 'admin' ? 'block' : 'none';
-    // Perfis que NÃO abrem O.S. (equipe, empresa/goldman, gestor) não veem a aba "Nova".
-    // Só SEINFRA, assistente e admin abrem O.S.
+    // Perfis que NÃO abrem O.S. (equipe, empresa/goldman, gestor) não veem a aba
+    // "Nova" nem o botão flutuante (+). Só SEINFRA, assistente e admin abrem O.S.
     const podeAbrirOS = ['admin', 'seinfra', 'assistente'].includes(usuario.perfil);
     if (!podeAbrirOS) {
       const tabNova = document.getElementById('tab-nova');
       if (tabNova) tabNova.style.display = 'none';
-    }
-    // A importação de protocolo SEN é só para quem abre O.S.
-    if (!podeAbrirOS) {
+      const fab = document.getElementById('fabNova');
+      if (fab) fab.style.display = 'none';
+      // A importação de protocolo SEN é só para quem abre O.S.
       const cardImportar = document.getElementById('cardImportarSEN');
       if (cardImportar) cardImportar.style.display = 'none';
     }
@@ -1040,7 +1040,9 @@ function showSection(id) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('section-' + id).classList.add('active');
   document.getElementById('tab-' + id).classList.add('active');
-  document.getElementById('fabNova').style.display = id === 'lista' ? 'flex' : 'none';
+  // O botão flutuante (+) só aparece na lista e apenas para quem abre O.S.
+  const podeAbrirOS = ['admin', 'seinfra', 'assistente'].includes(getUsuario().perfil);
+  document.getElementById('fabNova').style.display = (id === 'lista' && podeAbrirOS) ? 'flex' : 'none';
   if (id === 'relatorio') renderRelatorio();
   if (id === 'nova') { limparFormNova(); buscarProximoNumero(); }
   if (id === 'lista') setTimeout(atualizarSetasChips, 0);
