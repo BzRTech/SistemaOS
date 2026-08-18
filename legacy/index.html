@@ -2210,7 +2210,31 @@ ${observacoes.length ? `
   <span>Documento gerado pelo Sistema de Gestão de O.S. — Secretaria de Infraestrutura</span>
   <span>Impresso em ${fmtDataHora(new Date().toISOString())}</span>
 </div>
-<scr` + `ipt>window.onload = () => setTimeout(() => window.print(), 250);</scr` + `ipt>
+<scr` + `ipt>
+  // Só imprime depois que TODAS as fotos (data URIs grandes) terminarem de
+  // carregar/decodificar — senão o navegador imprime os quadros de imagem em
+  // branco. Há um tempo-limite de segurança para não travar a impressão.
+  (function () {
+    var imgs = Array.prototype.slice.call(document.images || []);
+    var pendentes = imgs.filter(function (im) { return !im.complete; }).length;
+    var jaImprimiu = false;
+    function imprimir() {
+      if (jaImprimiu) return; jaImprimiu = true;
+      setTimeout(function () { window.focus(); window.print(); }, 150);
+    }
+    function pronto() { if (--pendentes <= 0) imprimir(); }
+    if (!pendentes) { imprimir(); }
+    else {
+      imgs.forEach(function (im) {
+        if (im.complete) return;
+        im.addEventListener('load', pronto);
+        im.addEventListener('error', pronto);
+      });
+      // segurança: imprime mesmo que alguma imagem demore/falhe
+      setTimeout(imprimir, 5000);
+    }
+  })();
+</scr` + `ipt>
 </body>
 </html>`;
 
