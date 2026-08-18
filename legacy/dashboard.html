@@ -110,6 +110,7 @@ tr:hover td { background: #fafbfc; }
 .badge-encaminhada { background: #f0e9fb; color: #6a3fb5; }
 .badge-direcionada { background: #d1ecf1; color: #0c5460; }
 .badge-em_execucao { background: #fff8e6; color: var(--laranja); }
+.badge-aguardando_gestor { background: #ede9fe; color: #6a3fb5; }
 .badge-aguardando_validacao { background: #fef3cd; color: #856404; }
 .badge-fechada { background: var(--verde-claro); color: var(--verde); }
 .badge-reaberta { background: var(--azul-claro); color: var(--azul); }
@@ -248,7 +249,7 @@ function fmtDataHora(iso) {
 function labelStatus(s) {
   return {
     aberta:'Aberta', encaminhada:'Encaminhada', direcionada:'Direcionada', em_execucao:'Em Execução',
-    aguardando_validacao:'Aguardando Validação', fechada:'Fechada',
+    aguardando_gestor:'Aguardando Gestor', aguardando_validacao:'Aguardando Validação', fechada:'Fechada',
     reaberta:'Reaberta', cancelada:'Cancelada'
   }[s] || s;
 }
@@ -274,7 +275,7 @@ function urlMapa(os) {
 
 const COR_STATUS = {
   aberta: '#1a6eb4', encaminhada: '#8a5fd0', direcionada: '#17a2b8', em_execucao: '#e07b1a',
-  aguardando_validacao: '#f5a623', fechada: '#2d9e65',
+  aguardando_gestor: '#8a5fd0', aguardando_validacao: '#f5a623', fechada: '#2d9e65',
   reaberta: '#1a6eb4', cancelada: '#d32f2f',
 };
 
@@ -377,7 +378,7 @@ function render(ordens) {
   document.getElementById('stTotal').textContent = total;
   document.getElementById('stAbertas').textContent = c('aberta') + c('reaberta') + c('encaminhada') + c('direcionada');
   document.getElementById('stEmExecucao').textContent = c('em_execucao');
-  document.getElementById('stValidacao').textContent = c('aguardando_validacao');
+  document.getElementById('stValidacao').textContent = c('aguardando_gestor') + c('aguardando_validacao');
   document.getElementById('stFechadas').textContent = c('fechada');
   document.getElementById('stCanceladas').textContent = c('cancelada');
   document.getElementById('stRecorrentes').textContent = recorrentes.length;
@@ -448,7 +449,7 @@ setInterval(carregar, 60000); // atualiza a cada minuto
 // Mostra nome do usuário logado
 fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
   if (!data) return;
-  const perfis = { admin: 'Administrador', seinfra: 'SEINFRA', goldman: 'Empresa', equipe: 'Equipe' };
+  const perfis = { admin: 'Administrador', seinfra: 'SEINFRA', assistente: 'Assistente', goldman: 'Empresa', gestor: 'Gestor', equipe: 'Equipe' };
   const el = document.getElementById('usuarioSub');
   const u = data.usuario;
   const label = perfis[u.perfil] || u.perfil || perfis[u.role] || u.role;
