@@ -2327,7 +2327,13 @@ ${fotoProtocoloHtml ? `
     var jaImprimiu = false;
     function imprimir() {
       if (jaImprimiu) return; jaImprimiu = true;
-      setTimeout(function () { window.focus(); window.print(); }, 150);
+      setTimeout(function () {
+        try { window.focus(); } catch (e) {}
+        window.onafterprint = function () {
+          try { parent.postMessage('os-impressao-fim', '*'); } catch (e) {}
+        };
+        window.print();
+      }, 150);
     }
     function pronto() { if (--pendentes <= 0) imprimir(); }
     if (!pendentes) { imprimir(); }
@@ -2345,10 +2351,35 @@ ${fotoProtocoloHtml ? `
 </body>
 </html>`;
 
-  const w = window.open('', '_blank');
-  if (!w) { toast('⚠️ Permita pop-ups para imprimir a O.S.', 3000); return; }
-  w.document.write(html);
-  w.document.close();
+  // Imprime por um iframe na própria página, e não por window.open: o
+  // bloqueador de pop-ups barra a janela sempre que a impressão não parte de
+  // um clique — caso do atalho 🖨️ do mapa, que abre a O.S. e imprime em
+  // seguida. Pelo iframe não há pop-up envolvido e o botão manual também
+  // deixa de depender da permissão.
+  const antigo = document.getElementById('frameImpressao');
+  if (antigo) antigo.remove();
+
+  const frame = document.createElement('iframe');
+  frame.id = 'frameImpressao';
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(frame);
+
+  // remove o iframe quando a impressão termina; o tempo-limite é só uma rede de
+  // segurança, para o caso de o navegador não disparar o aviso de fim
+  const limpar = () => { const f = document.getElementById('frameImpressao'); if (f) f.remove(); };
+  const aoTerminar = (ev) => {
+    if (ev.data !== 'os-impressao-fim') return;
+    window.removeEventListener('message', aoTerminar);
+    limpar();
+  };
+  window.addEventListener('message', aoTerminar);
+  setTimeout(() => { window.removeEventListener('message', aoTerminar); limpar(); }, 120000);
+
+  const doc = frame.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
 }
 
 // ── FOTO GRANDE ───────────────────────────────────────────────────────────────
