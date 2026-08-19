@@ -1006,7 +1006,27 @@ window.addEventListener('DOMContentLoaded', () => {
   testarConexaoSilencioso();
   iniciarSessao();
   carregarCadastros();
+  abrirOSPelaURL();
 });
+
+// Abertura direta de uma O.S. pelo endereço da página — usado pelos links do
+// mapa/dashboard:
+//   /index.html?os=<id>              abre o detalhe da O.S.
+//   /index.html?os=<id>&imprimir=1   abre e já dispara a impressão
+async function abrirOSPelaURL() {
+  const params = new URLSearchParams(location.search);
+  const id = params.get('os');
+  if (!id) return;
+  // tira os parâmetros da barra de endereços antes de agir, para um F5 (ou o
+  // botão voltar) não reabrir/reimprimir a O.S. sem o usuário pedir
+  history.replaceState(null, '', location.pathname);
+  try {
+    await abrirDetalhes(id);
+    if (params.get('imprimir') === '1' && S.osAberta) imprimirOS();
+  } catch (e) {
+    toast('Não foi possível abrir a O.S.: ' + e.message);
+  }
+}
 
 async function iniciarSessao() {
   try {

@@ -157,7 +157,20 @@ tr:hover td { background: #fafbfc; }
 /* ponto de GPS da foto: cor = status, com anel extra p/ diferenciar do ponto cadastrado */
 .mkr-gps { width: 18px; height: 18px; box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 0 0 4px rgba(23,162,184,0.35); }
 .leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
-.leaflet-popup-content .pop-num { font-family: monospace; font-weight: 700; color: var(--primaria); }
+.leaflet-popup-content .pop-cab {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--cinza-borda); padding-bottom: 5px; margin-bottom: 5px;
+}
+.leaflet-popup-content .pop-num {
+  font-family: monospace; font-weight: 700; color: var(--primaria);
+  text-decoration: none; font-size: 14px;
+}
+.leaflet-popup-content .pop-num:hover { text-decoration: underline; }
+.leaflet-popup-content .pop-print {
+  text-decoration: none; font-size: 15px; line-height: 1; flex-shrink: 0;
+  padding: 3px 6px; border-radius: 6px; background: var(--cinza-bg);
+}
+.leaflet-popup-content .pop-print:hover { background: var(--primaria-clara); }
 .leaflet-popup-content a { color: var(--azul); text-decoration: none; font-weight: 600; }
 </style>
 </head>
@@ -298,6 +311,17 @@ const COR_STATUS = {
 };
 
 let mapa = null, camadaPontos = null;
+// Cabeçalho comum dos popups do mapa: o número abre a O.S. no sistema e o
+// ícone abre já disparando a impressão. O dashboard não carrega as fotos, por
+// isso quem imprime é a própria tela da O.S., que busca a versão completa.
+function cabecalhoPopup(o) {
+  const url = '/index.html?os=' + encodeURIComponent(o.id || '');
+  return `<div class="pop-cab">
+    <a class="pop-num" href="${url}" title="Abrir esta O.S. no sistema">${esc(o.numero)}</a>
+    <a class="pop-print" href="${url}&imprimir=1" title="Imprimir esta O.S." aria-label="Imprimir esta O.S.">🖨️</a>
+  </div>`;
+}
+
 function renderMapa(ordens) {
   const comCoord = ordens.map(o => ({ o, c: coordsDe(o) })).filter(x => x.c);
   const gpsCount = ordens.filter(o => gpsDe(o.gpsInicio)).length;
@@ -339,7 +363,7 @@ function renderMapa(ordens) {
       ? L.divIcon({ className: '', html: `<div class="mkr mkr-rec" style="background:${cor}">${o.ocorrencias}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] })
       : L.divIcon({ className: '', html: `<div class="mkr" style="background:${cor}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
     const popup = `
-      <div class="pop-num">${esc(o.numero)}</div>
+      ${cabecalhoPopup(o)}
       <div>${esc(o.endereco || '(sem endereço)')}${o.bairro ? ', ' + esc(o.bairro) : ''}</div>
       <div style="margin:4px 0"><span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span>${rec ? ` <span class="pill-rec">🔁 ${o.ocorrencias}x</span>` : ''}</div>
       <a href="https://www.google.com/maps/search/?api=1&query=${c[0]},${c[1]}" target="_blank">🗺️ Abrir no Google Maps</a>`;
@@ -353,7 +377,7 @@ function renderMapa(ordens) {
     if (gpsI) {
       const corGps = COR_STATUS[o.status] || '#5a6473';
       const icon = L.divIcon({ className: '', html: `<div class="mkr mkr-gps" style="background:${corGps}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-      const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início · <span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
+      const popup = `${cabecalhoPopup(o)}<div>📷 Foto de Início · <span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
       marcadores.push({ c: gpsI, icon, popup });
     }
   }
