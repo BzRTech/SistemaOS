@@ -317,6 +317,7 @@ function renderMapa(ordens) {
   camadaPontos = L.layerGroup().addTo(mapa);
 
   const pontos = [];
+  const marcadores = [];
   for (const { o, c } of comCoord) {
     const cor = COR_STATUS[o.status] || '#5a6473';
     const rec = (o.ocorrencias || 1) > 1;
@@ -328,8 +329,7 @@ function renderMapa(ordens) {
       <div>${esc(o.endereco || '(sem endereço)')}${o.bairro ? ', ' + esc(o.bairro) : ''}</div>
       <div style="margin:4px 0"><span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span>${rec ? ` <span class="pill-rec">🔁 ${o.ocorrencias}x</span>` : ''}</div>
       <a href="https://www.google.com/maps/search/?api=1&query=${c[0]},${c[1]}" target="_blank">🗺️ Abrir no Google Maps</a>`;
-    L.marker(c, { icon }).bindPopup(popup).addTo(camadaPontos);
-    pontos.push(c);
+    marcadores.push({ c, icon, popup });
   }
 
   // Plota o ponto GPS capturado na foto de INÍCIO do serviço.
@@ -340,10 +340,32 @@ function renderMapa(ordens) {
       const corGps = COR_STATUS[o.status] || '#5a6473';
       const icon = L.divIcon({ className: '', html: `<div class="mkr mkr-gps" style="background:${corGps}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
       const popup = `<div class="pop-num">${esc(o.numero)}</div><div>📷 Foto de Início · <span class="badge badge-${esc(o.status)}">${labelStatus(o.status)}</span></div><div style="font-size:12px;color:var(--cinza-texto)">GPS: ${gpsI[0].toFixed(6)}, ${gpsI[1].toFixed(6)}</div><a href="https://www.google.com/maps/search/?api=1&query=${gpsI[0]},${gpsI[1]}" target="_blank">🗺️ Google Maps</a>`;
-      L.marker(gpsI, { icon }).bindPopup(popup).addTo(camadaPontos);
-      pontos.push(gpsI);
+      marcadores.push({ c: gpsI, icon, popup });
     }
   }
+
+  // Pontos praticamente no mesmo lugar (equipes que registram do mesmo ponto,
+  // ou O.S. vizinhas) ficam empilhados e o mapa aparenta ter um único marcador.
+  // Espalha cada grupo num pequeno círculo para todas as O.S. ficarem visíveis.
+  const grupos = new Map();
+  marcadores.forEach(m => {
+    const chave = m.c[0].toFixed(4) + ',' + m.c[1].toFixed(4); // ~11 m
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(m);
+  });
+  grupos.forEach(grupo => {
+    if (grupo.length < 2) return;
+    const raio = 0.00014; // ~15 m — separa visualmente sem tirar do local
+    grupo.forEach((m, i) => {
+      const ang = (2 * Math.PI * i) / grupo.length;
+      m.c = [m.c[0] + raio * Math.cos(ang), m.c[1] + raio * Math.sin(ang)];
+    });
+  });
+
+  marcadores.forEach(m => {
+    L.marker(m.c, { icon: m.icon }).bindPopup(m.popup).addTo(camadaPontos);
+    pontos.push(m.c);
+  });
 
   ultimosPontos = pontos;
   // enquadra só na 1ª carga; nas atualizações automáticas preserva o zoom/posição
