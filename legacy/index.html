@@ -2036,6 +2036,46 @@ function imprimirOS() {
     foto(`Documento do protocolo${fotosProtocolo.length > 1 ? ` ${i + 1} de ${fotosProtocolo.length}` : ''}`, f, '')
   ).join('');
 
+  // ── Tempo de execução do serviço ──────────────────────────────────────────
+  // Calculado por ciclo (foto de início → foto de fim), usando as datas do
+  // arquivo de fotos de campo. Cai para data_inicio/data_fim quando a O.S. é
+  // antiga e não tem arquivo. O.S. reaberta soma o tempo das execuções.
+  const fmtDuracao = (ms) => {
+    const min = Math.max(0, Math.round(ms / 60000));
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? `${min} min (${h}h${String(m).padStart(2, '0')})` : `${min} min`;
+  };
+  const ciclosExec = (() => {
+    const porCiclo = new Map();
+    fotosCampo.forEach(f => {
+      const t = f.dataHora ? new Date(f.dataHora).getTime() : NaN;
+      if (isNaN(t)) return;
+      const c = f.ciclo || 1;
+      const reg = porCiclo.get(c) || {};
+      if (f.tipo === 'inicio') reg.ini = reg.ini === undefined ? t : Math.min(reg.ini, t);
+      if (f.tipo === 'fim')    reg.fim = reg.fim === undefined ? t : Math.max(reg.fim, t);
+      porCiclo.set(c, reg);
+    });
+    let lista = [...porCiclo.entries()]
+      .filter(([, r]) => r.ini !== undefined && r.fim !== undefined && r.fim >= r.ini)
+      .map(([c, r]) => ({ ciclo: c, ms: r.fim - r.ini }))
+      .sort((a, b) => a.ciclo - b.ciclo);
+    if (!lista.length && os.dataInicioServico && os.dataFimServico) {
+      const a = new Date(os.dataInicioServico).getTime();
+      const b = new Date(os.dataFimServico).getTime();
+      if (!isNaN(a) && !isNaN(b) && b >= a) lista = [{ ciclo: 1, ms: b - a }];
+    }
+    return lista;
+  })();
+  const totalExecMs = ciclosExec.reduce((soma, c) => soma + c.ms, 0);
+  const emAndamento = !ciclosExec.length && os.dataInicioServico && !os.dataFimServico;
+  const tempoExecTxt = ciclosExec.length
+    ? fmtDuracao(totalExecMs)
+    : (emAndamento ? 'em execução' : '–');
+  const tempoDetalhe = ciclosExec.length > 1
+    ? ciclosExec.map(c => `Execução ${c.ciclo}: ${fmtDuracao(c.ms)}`).join(' &nbsp;·&nbsp; ')
+    : '';
+
   const historico = (os.historico || []).map(h => `
     <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
 
@@ -2099,6 +2139,10 @@ body {
   padding: 5px 9px; background: #f4f5f7; color: #5a6473; border-bottom: 1px solid #d8dde3;
 }
 .foto-bloco img { width: 100%; height: 58mm; object-fit: cover; display: block; }
+.tempo-detalhe {
+  margin-top: 7px; font-size: 9.5px; color: #5a6473;
+  background: #f8f9fb; border: 1px solid #e6eaee; border-radius: 6px; padding: 5px 9px;
+}
 .foto-bloco .foto-meta {
   font-size: 8.5px; color: #5a6473; padding: 4px 9px; background: #fafbfc;
   border-top: 1px solid #eef1f4;
@@ -2177,7 +2221,9 @@ td.st { font-weight: 700; white-space: nowrap; }
     <div class="campo"><div class="rotulo">Solicitante</div><div class="valor">${e(os.solicitante) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Responsável técnico</div><div class="valor">${e(os.responsavel) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Equipe / Empreiteira</div><div class="valor">${e(os.equipe) || '–'}</div></div>
+    <div class="campo"><div class="rotulo">⏱ Tempo de execução</div><div class="valor">${tempoExecTxt}</div></div>
   </div>
+  ${tempoDetalhe ? `<div class="tempo-detalhe">${tempoDetalhe} &nbsp;·&nbsp; <strong>Total: ${fmtDuracao(totalExecMs)}</strong></div>` : ''}
 </div>
 
 <div class="secao">
@@ -2191,22 +2237,22 @@ ${observacoes.length ? `
   ${observacoes.map(h => `<div class="obs-item"><span class="obs-data">${fmtDataHora(h.data)}</span> — ${e(h.obs)}</div>`).join('')}
 </div>` : ''}
 
+${(os.fotosAbertura && os.fotosAbertura.length) ? `
 <div class="secao">
-  <div class="secao-titulo">Registro Fotográfico — Abertura</div>
+  <div class="secao-titulo">Registro Fotográfico — Abertura (${os.fotosAbertura.length})</div>
   <div class="fotos">
-    ${(os.fotosAbertura && os.fotosAbertura.length
-        ? os.fotosAbertura.map((f, i) => foto(`Foto de abertura${os.fotosAbertura.length > 1 ? ` ${i + 1} de ${os.fotosAbertura.length}` : ''}`, f, '')).join('')
-        : foto('Foto de abertura', null, 'Sem foto de abertura registrada'))}
+    ${os.fotosAbertura.map((f, i) => foto(`Foto de abertura${os.fotosAbertura.length > 1 ? ` ${i + 1} de ${os.fotosAbertura.length}` : ''}`, f, '')).join('')}
   </div>
-</div>
+</div>` : ''}
 
+${(fotoCampoHtml || os.fotoConclusao) ? `
 <div class="secao">
   <div class="secao-titulo">Registro Fotográfico — Campo${maxCiclo > 1 ? ` (${maxCiclo} execuções)` : ''}</div>
   <div class="fotos">
-    ${fotoCampoHtml || foto('Fotos de campo', null, 'Sem fotos de campo registradas')}
+    ${fotoCampoHtml}
     ${os.fotoConclusao ? foto('Foto de conclusão (anexada)', os.fotoConclusao, '') : ''}
   </div>
-</div>
+</div>` : ''}
 
 ${fotoProtocoloHtml ? `
 <div class="secao">
