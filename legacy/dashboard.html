@@ -29,6 +29,17 @@
   --vermelho: #d32f2f;
   --vermelho-claro: #fdecea;
   --sombra: 0 2px 12px rgba(0,0,0,0.08);
+
+  /* ── Paleta por situação da O.S. — FONTE ÚNICA ────────────────────────────
+     A mesma cor vale para o card do topo, a bolinha do mapa, o badge das
+     tabelas e a legenda. Ao mexer aqui, mexa também em COR_STATUS (JS), que
+     repete estes valores para o Leaflet. Cada cor cobre os status agrupados
+     pelo card correspondente. */
+  --st-aberta:    #1a6eb4;  /* aberta, reaberta, encaminhada, direcionada */
+  --st-execucao:  #e07b1a;  /* em_execucao                                */
+  --st-validacao: #8a5fd0;  /* aguardando_gestor, aguardando_validacao    */
+  --st-fechada:   #2d9e65;  /* fechada                                    */
+  --st-cancelada: #d32f2f;  /* cancelada                                  */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -65,12 +76,14 @@ body {
 .card-stat .num { font-size: 34px; font-weight: 800; line-height: 1.1; }
 .card-stat .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cinza-texto); margin-top: 4px; }
 .card-stat.c-total { border-top-color: var(--primaria-escura); }
-.card-stat.c-aberta { border-top-color: var(--azul); }    .card-stat.c-aberta .num { color: var(--azul); }
-.card-stat.c-validada { border-top-color: #8a5fd0; } .card-stat.c-validada .num { color: #6a3fb5; }
-.card-stat.c-andamento { border-top-color: var(--amarelo); } .card-stat.c-andamento .num { color: var(--laranja); }
-.card-stat.c-concluida { border-top-color: var(--verde-medio); } .card-stat.c-concluida .num { color: var(--verde); }
-.card-stat.c-cancelada { border-top-color: var(--vermelho); } .card-stat.c-cancelada .num { color: var(--vermelho); }
-.card-stat.c-recorrente { border-top-color: var(--laranja); } .card-stat.c-recorrente .num { color: var(--laranja); }
+.card-stat.c-aberta    { border-top-color: var(--st-aberta); }    .card-stat.c-aberta .num    { color: var(--st-aberta); }
+.card-stat.c-validada  { border-top-color: var(--st-validacao); } .card-stat.c-validada .num  { color: var(--st-validacao); }
+.card-stat.c-andamento { border-top-color: var(--st-execucao); }  .card-stat.c-andamento .num { color: var(--st-execucao); }
+.card-stat.c-concluida { border-top-color: var(--st-fechada); }   .card-stat.c-concluida .num { color: var(--st-fechada); }
+.card-stat.c-cancelada { border-top-color: var(--st-cancelada); } .card-stat.c-cancelada .num { color: var(--st-cancelada); }
+/* Recorrentes não é uma situação da O.S. (cruza com qualquer status) — fica
+   com o tom neutro do brasão para não se confundir com "Em Execução". */
+.card-stat.c-recorrente { border-top-color: var(--primaria); } .card-stat.c-recorrente .num { color: var(--primaria); }
 
 .paineis { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 900px) { .paineis { grid-template-columns: 1fr; } .conteudo { padding: 16px; } .topo { padding: 14px 16px; } }
@@ -106,15 +119,13 @@ tr:hover td { background: #fafbfc; }
   font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 20px;
   text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
 }
-.badge-aberta { background: var(--azul-claro); color: var(--azul); }
-.badge-encaminhada { background: #f0e9fb; color: #6a3fb5; }
-.badge-direcionada { background: #d1ecf1; color: #0c5460; }
-.badge-em_execucao { background: #fff8e6; color: var(--laranja); }
-.badge-aguardando_gestor { background: #ede9fe; color: #6a3fb5; }
-.badge-aguardando_validacao { background: #fef3cd; color: #856404; }
-.badge-fechada { background: var(--verde-claro); color: var(--verde); }
-.badge-reaberta { background: var(--azul-claro); color: var(--azul); }
-.badge-cancelada { background: var(--vermelho-claro); color: var(--vermelho); }
+.badge-aberta,      .badge-reaberta,
+.badge-encaminhada, .badge-direcionada        { background: #e8f0fa; color: var(--st-aberta); }
+.badge-em_execucao                            { background: #fff4e6; color: var(--st-execucao); }
+.badge-aguardando_gestor,
+.badge-aguardando_validacao                   { background: #ede9fe; color: var(--st-validacao); }
+.badge-fechada                                { background: #e8f5ee; color: var(--st-fechada); }
+.badge-cancelada                              { background: #fdecea; color: var(--st-cancelada); }
 .pill-rec {
   display: inline-flex; align-items: center; gap: 4px;
   background: #fff3e0; color: var(--laranja); border: 1px solid #f5cf9b;
@@ -201,15 +212,13 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
       <h2>🗺️ Mapa dos pontos coletados <span id="mapaContador" style="font-weight:400;color:var(--cinza-texto);font-size:12px"></span></h2>
       <div id="mapaWrap"><div class="mapa-vazio">Carregando mapa...</div></div>
       <div class="mapa-legenda">
-        <span><span class="leg-dot" style="background:#1a6eb4"></span> Aberta</span>
-        <span><span class="leg-dot" style="background:#8a5fd0"></span> Encaminhada</span>
-        <span><span class="leg-dot" style="background:#17a2b8"></span> Direcionada</span>
-        <span><span class="leg-dot" style="background:#e07b1a"></span> Em Execução</span>
-        <span><span class="leg-dot" style="background:#f5a623"></span> Aguardando Validação</span>
-        <span><span class="leg-dot" style="background:#2d9e65"></span> Fechada</span>
-        <span><span class="leg-dot" style="background:#d32f2f"></span> Cancelada</span>
+        <span><span class="leg-dot" style="background:var(--st-aberta)"></span> Aberta / Encaminhada / Direcionada</span>
+        <span><span class="leg-dot" style="background:var(--st-execucao)"></span> Em Execução</span>
+        <span><span class="leg-dot" style="background:var(--st-validacao)"></span> Aguardando Validação</span>
+        <span><span class="leg-dot" style="background:var(--st-fechada)"></span> Fechada</span>
+        <span><span class="leg-dot" style="background:var(--st-cancelada)"></span> Cancelada</span>
         <span><span class="leg-dot" style="background:#5a6473;box-shadow:0 0 0 3px rgba(23,162,184,0.35)"></span> 📍 GPS da Foto (cor = status)</span>
-        <span><span class="leg-dot" style="background:#e07b1a;width:18px;border-radius:4px"></span> 🔁 Recorrente</span>
+        <span><span class="leg-dot" style="background:var(--cinza-texto);width:18px;border-radius:4px"></span> 🔁 Recorrente (nº = ocorrências, cor = status)</span>
       </div>
     </div>
     <div class="painel">
@@ -277,10 +286,15 @@ function urlMapa(os) {
   return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
 }
 
+// Espelha as variáveis --st-* do CSS: a bolinha do mapa sai na mesma cor do
+// card do topo e do badge das tabelas. Alterou aqui, altere lá.
 const COR_STATUS = {
-  aberta: '#1a6eb4', encaminhada: '#8a5fd0', direcionada: '#17a2b8', em_execucao: '#e07b1a',
-  aguardando_gestor: '#8a5fd0', aguardando_validacao: '#f5a623', fechada: '#2d9e65',
-  reaberta: '#1a6eb4', cancelada: '#d32f2f',
+  aberta:     '#1a6eb4', reaberta:          '#1a6eb4',   // --st-aberta
+  encaminhada:'#1a6eb4', direcionada:       '#1a6eb4',   // --st-aberta
+  em_execucao:'#e07b1a',                                 // --st-execucao
+  aguardando_gestor: '#8a5fd0', aguardando_validacao: '#8a5fd0', // --st-validacao
+  fechada:    '#2d9e65',                                 // --st-fechada
+  cancelada:  '#d32f2f',                                 // --st-cancelada
 };
 
 let mapa = null, camadaPontos = null;
