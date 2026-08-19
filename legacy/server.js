@@ -1015,27 +1015,24 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
       usuario: req.usuario.id,
     });
 
-    // Refazer substitui a foto mais recente do mesmo tipo no arquivo (mesma
-    // tentativa), sem criar um novo registro.
+    // Refazer NÃO apaga a foto anterior: marca a antiga como substituída e
+    // arquiva a nova. Assim o arquivo guarda tudo que foi enviado ao sistema.
     const fotosCampo = parseFotosCampo(os.fotos_campo);
-    let substituida = false;
+    let ciclo = tipo === 'inicio'
+      ? Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length)
+      : Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length);
     for (let i = fotosCampo.length - 1; i >= 0; i--) {
-      if (fotosCampo[i].tipo === tipo) {
-        fotosCampo[i] = {
-          ...fotosCampo[i], foto, gps: gps || null,
-          dataHora: normalizarDataHora(dataHora), refeita: true,
-          criadoEm: new Date().toISOString(),
-        };
-        substituida = true;
+      if (fotosCampo[i].tipo === tipo && !fotosCampo[i].substituida) {
+        fotosCampo[i] = { ...fotosCampo[i], substituida: true };
+        ciclo = fotosCampo[i].ciclo || ciclo;
         break;
       }
     }
-    if (!substituida) {
-      const ciclo = tipo === 'inicio'
-        ? fotosCampo.filter(f => f.tipo === 'inicio').length + 1
-        : Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length);
-      fotosCampo.push({ tipo, ciclo, foto, gps: gps || null, dataHora: normalizarDataHora(dataHora), refeita: true, criadoEm: new Date().toISOString() });
-    }
+    fotosCampo.push({
+      tipo, ciclo, foto, gps: gps || null,
+      dataHora: normalizarDataHora(dataHora), refeita: true,
+      criadoEm: new Date().toISOString(),
+    });
 
     const campos = tipo === 'inicio'
       ? 'foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3'
