@@ -567,7 +567,11 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
     if (req.usuario.perfil === 'equipe') {
       params.push(req.usuario.equipe_nome || '');
       params.push(req.usuario.empresa || '');
-      filtro = `WHERE equipe_designada = $${params.length - 1} AND empresa_designada = $${params.length}`;
+      // A equipe de campo só enxerga o que precisa executar: OS direcionada a
+      // ela e OS em execução. Etapas de validação e OS fechadas não interessam
+      // ao campo e são omitidas da listagem.
+      filtro = `WHERE equipe_designada = $${params.length - 1} AND empresa_designada = $${params.length}
+                  AND status IN ('direcionada', 'em_execucao')`;
     } else if (req.usuario.perfil === 'goldman' || req.usuario.perfil === 'gestor') {
       params.push(req.usuario.empresa || '');
       filtro = `WHERE empresa_designada = $${params.length}`;
