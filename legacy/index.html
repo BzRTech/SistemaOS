@@ -1734,6 +1734,28 @@ async function abrirDetalhes(id) {
     </div>` : ''}
 
     <!-- FOTOS DO PROTOCOLO/DOCUMENTO (importadas do PDF) -->
+    <!-- ARQUIVO DE FOTOS DE CAMPO (execuções anteriores / rejeitadas) -->
+    ${(() => {
+      const fc = os.fotosCampo || [];
+      const maxC = fc.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
+      // Só mostra o arquivo quando houve mais de uma execução (reabertura),
+      // pois as fotos da execução atual já aparecem nos cards acima.
+      if (maxC < 2) return '';
+      return `
+      <div class="form-card" style="border-left:4px solid var(--vermelho)">
+        <div class="form-card-title">🗂️ Histórico de fotos de campo <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${fc.length} · ${maxC} execuções)</span></div>
+        <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Todas as fotos tiradas em campo, incluindo as das execuções rejeitadas. Vão para a impressão da O.S.</p>
+        <div class="fotos-grid" style="margin-top:0">${fc.map(f => {
+          const rej = (f.ciclo || 1) < maxC;
+          const base = f.tipo === 'inicio' ? 'Início' : 'Conclusão';
+          return `<div class="foto-thumb">
+            <img src="${f.foto}" onclick="verFoto('${f.foto}')" alt="${base}">
+            <div style="font-size:9px;text-align:center;padding:3px 2px;color:${rej ? 'var(--vermelho)' : 'var(--cinza-texto)'};background:${rej ? 'var(--vermelho-claro)' : 'var(--cinza-bg)'}">${base} · Exec ${f.ciclo || 1}${rej ? ' (rej.)' : ''}</div>
+          </div>`;
+        }).join('')}</div>
+      </div>`;
+    })()}
+
     ${pdfFotos.length ? `
     <div class="form-card">
       <div class="form-card-title">📄 Fotos do Protocolo/Documento <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${pdfFotos.length})</span></div>
@@ -1977,6 +1999,27 @@ function imprimirOS() {
       ${src ? `<img src="${src}" alt="${titulo}">` : `<div class="foto-vazia">${vazio}</div>`}
     </div>`;
 
+  // Todas as fotos de campo (início/fim) de todos os ciclos de execução — inclui
+  // as das execuções rejeitadas. Fallback p/ OS antigas sem o arquivo `fotosCampo`.
+  const fotosCampo = (os.fotosCampo && os.fotosCampo.length) ? os.fotosCampo : [
+    ...(os.fotoInicio ? [{ tipo:'inicio', ciclo:1, foto:os.fotoInicio, gps:os.gpsInicio, dataHora:os.dataInicioServico }] : []),
+    ...(os.fotoFim ? [{ tipo:'fim', ciclo:1, foto:os.fotoFim, gps:os.gpsFim, dataHora:os.dataFimServico }] : []),
+  ];
+  const maxCiclo = fotosCampo.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
+  const fotoCampoHtml = fotosCampo.map(f => {
+    const base = f.tipo === 'inicio' ? 'Foto de início' : 'Foto de conclusão';
+    const ciclo = f.ciclo || 1;
+    const rejeitada = maxCiclo > 1 && ciclo < maxCiclo;
+    const cicloTxt = maxCiclo > 1 ? ` · Execução ${ciclo}${rejeitada ? ' (rejeitada)' : ''}` : '';
+    const meta = [f.dataHora ? '📅 ' + fmtDataHora(f.dataHora) : '', f.gps ? '📍 ' + f.gps : '']
+      .filter(Boolean).join(' &nbsp;·&nbsp; ');
+    return `<div class="foto-bloco${rejeitada ? ' rejeitada' : ''}">
+      <div class="foto-titulo">📷 ${base}${cicloTxt}</div>
+      <img src="${f.foto}" alt="${base}">
+      ${meta ? `<div class="foto-meta">${meta}</div>` : ''}
+    </div>`;
+  }).join('');
+
   const historico = (os.historico || []).map(h => `
     <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
 
@@ -2040,6 +2083,11 @@ body {
   padding: 5px 9px; background: #f4f5f7; color: #5a6473; border-bottom: 1px solid #d8dde3;
 }
 .foto-bloco img { width: 100%; height: 58mm; object-fit: cover; display: block; }
+.foto-bloco .foto-meta {
+  font-size: 8.5px; color: #5a6473; padding: 4px 9px; background: #fafbfc;
+  border-top: 1px solid #eef1f4;
+}
+.foto-bloco.rejeitada .foto-titulo { background: #fdecea; color: #b9331f; border-bottom-color: #f3b6b1; }
 .foto-vazia {
   height: 58mm; display: flex; align-items: center; justify-content: center;
   color: #aab2bc; font-size: 11px; background: #fafbfc;
@@ -2128,12 +2176,19 @@ ${observacoes.length ? `
 </div>` : ''}
 
 <div class="secao">
-  <div class="secao-titulo">Registro Fotográfico</div>
+  <div class="secao-titulo">Registro Fotográfico — Abertura</div>
   <div class="fotos">
     ${(os.fotosAbertura && os.fotosAbertura.length
         ? os.fotosAbertura.map((f, i) => foto(`Foto de abertura${os.fotosAbertura.length > 1 ? ` ${i + 1} de ${os.fotosAbertura.length}` : ''}`, f, '')).join('')
         : foto('Foto de abertura', null, 'Sem foto de abertura registrada'))}
-    ${foto('Foto de conclusão', os.fotoConclusao, 'Sem foto de conclusão registrada')}
+  </div>
+</div>
+
+<div class="secao">
+  <div class="secao-titulo">Registro Fotográfico — Campo${maxCiclo > 1 ? ` (${maxCiclo} execuções)` : ''}</div>
+  <div class="fotos">
+    ${fotoCampoHtml || foto('Fotos de campo', null, 'Sem fotos de campo registradas')}
+    ${os.fotoConclusao ? foto('Foto de conclusão (anexada)', os.fotoConclusao, '') : ''}
   </div>
 </div>
 
@@ -2155,7 +2210,31 @@ ${observacoes.length ? `
   <span>Documento gerado pelo Sistema de Gestão de O.S. — Secretaria de Infraestrutura</span>
   <span>Impresso em ${fmtDataHora(new Date().toISOString())}</span>
 </div>
-<scr` + `ipt>window.onload = () => setTimeout(() => window.print(), 250);</scr` + `ipt>
+<scr` + `ipt>
+  // Só imprime depois que TODAS as fotos (data URIs grandes) terminarem de
+  // carregar/decodificar — senão o navegador imprime os quadros de imagem em
+  // branco. Há um tempo-limite de segurança para não travar a impressão.
+  (function () {
+    var imgs = Array.prototype.slice.call(document.images || []);
+    var pendentes = imgs.filter(function (im) { return !im.complete; }).length;
+    var jaImprimiu = false;
+    function imprimir() {
+      if (jaImprimiu) return; jaImprimiu = true;
+      setTimeout(function () { window.focus(); window.print(); }, 150);
+    }
+    function pronto() { if (--pendentes <= 0) imprimir(); }
+    if (!pendentes) { imprimir(); }
+    else {
+      imgs.forEach(function (im) {
+        if (im.complete) return;
+        im.addEventListener('load', pronto);
+        im.addEventListener('error', pronto);
+      });
+      // segurança: imprime mesmo que alguma imagem demore/falhe
+      setTimeout(imprimir, 5000);
+    }
+  })();
+</scr` + `ipt>
 </body>
 </html>`;
 
