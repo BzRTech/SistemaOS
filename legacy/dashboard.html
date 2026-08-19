@@ -134,7 +134,7 @@ tr:hover td { background: #fafbfc; }
   color: var(--cinza-texto); font-size: 14px; gap: 6px; background: var(--cinza-bg); border-radius: 12px;
 }
 @media (max-width: 600px) { #mapa, .mapa-vazio { height: 62vh; } }
-#recorrentes, #ultimas { overflow-x: auto; } /* tabelas largas rolam no lugar de estourar */
+#recorrentes, #ultimas, #aguardandoValidacao { overflow-x: auto; } /* tabelas largas rolam no lugar de estourar */
 .mapa-legenda { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 12px; }
 .mapa-legenda span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cinza-texto); }
 .leg-dot { width: 13px; height: 13px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
@@ -223,6 +223,10 @@ function logout() { localStorage.removeItem('os_token'); localStorage.removeItem
     <div class="painel painel-largo">
       <h2>🔁 Ruas mais recorrentes (buracos reincidentes)</h2>
       <div id="recorrentes"><div class="vazio">Carregando...</div></div>
+    </div>
+    <div class="painel painel-largo">
+      <h2>⏳ Aguardando validação <span id="validacaoContador" style="font-weight:400;color:var(--cinza-texto);font-size:12px"></span></h2>
+      <div id="aguardandoValidacao"><div class="vazio">Carregando...</div></div>
     </div>
     <div class="painel painel-largo">
       <h2>🕐 Últimas O.S.</h2>
@@ -409,6 +413,37 @@ function render(ordens) {
           <td>${urlMapa(o) ? `<a class="link-mapa" href="${urlMapa(o)}" target="_blank">🗺️ Mapa</a>` : ''}</td>
         </tr>`).join('')}
     </table>` : '<div class="vazio">Nenhuma O.S. recorrente.</div>';
+
+  // O.S. paradas em alguma etapa de validação — quem precisa agir e há quanto
+  // tempo estão esperando. Mais antigas primeiro, que são as mais urgentes.
+  const aguardando = ordens
+    .filter(o => o.status === 'aguardando_gestor' || o.status === 'aguardando_validacao')
+    .sort((a, b) => new Date(a.dataFimServico || a.atualizadoEm || a.criadoEm)
+                  - new Date(b.dataFimServico || b.atualizadoEm || b.criadoEm));
+  const esperaTxt = (o) => {
+    const ref = o.dataFimServico || o.atualizadoEm || o.criadoEm;
+    const ms = Date.now() - new Date(ref).getTime();
+    if (isNaN(ms) || ms < 0) return '–';
+    const h = Math.floor(ms / 3600000);
+    if (h < 1) return Math.max(1, Math.round(ms / 60000)) + ' min';
+    if (h < 48) return h + 'h';
+    return Math.floor(h / 24) + ' dias';
+  };
+  document.getElementById('validacaoContador').textContent =
+    aguardando.length ? `· ${aguardando.length} O.S.` : '';
+  document.getElementById('aguardandoValidacao').innerHTML = aguardando.length ? `
+    <table>
+      <tr><th>O.S.</th><th>Endereço</th><th>Empresa / Equipe</th><th>Aguarda</th><th>Esperando há</th><th></th></tr>
+      ${aguardando.map(o => `
+        <tr>
+          <td style="font-family:monospace;font-weight:700;color:var(--primaria)">${esc(o.numero)}</td>
+          <td>${esc(o.endereco||'–')}${o.bairro ? ', ' + esc(o.bairro) : ''}</td>
+          <td>${esc(o.empresaDesignada||'–')}${o.equipeDesignada ? ' · ' + esc(o.equipeDesignada) : ''}</td>
+          <td><span class="badge badge-${esc(o.status)}">${o.status === 'aguardando_gestor' ? 'Gestor da empresa' : 'SEINFRA'}</span></td>
+          <td>${esperaTxt(o)}</td>
+          <td>${urlMapa(o) ? `<a class="link-mapa" href="${urlMapa(o)}" target="_blank">🗺️ Mapa</a>` : ''}</td>
+        </tr>`).join('')}
+    </table>` : '<div class="vazio">Nenhuma O.S. aguardando validação.</div>';
 
   const ultimas = ordens.slice(0, 12);
   document.getElementById('ultimas').innerHTML = ultimas.length ? `
