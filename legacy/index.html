@@ -1885,17 +1885,26 @@ async function abrirDetalhes(id) {
           </div>`;
       }
 
-      if (['seinfra','assistente','admin'].includes(usuario.perfil) && (os.status === 'aberta' || os.status === 'reaberta') && !os.empresaDesignada) {
+      // Direcionar ou TROCAR a empresa — segue disponível depois da abertura,
+      // enquanto o serviço não começou em campo.
+      if (['seinfra','assistente','admin'].includes(usuario.perfil) &&
+          ['aberta','encaminhada','direcionada','reaberta'].includes(os.status)) {
+        const trocandoEmpresa = !!os.empresaDesignada;
         acoesHtml += `
           <div class="form-card" style="border:2px solid var(--azul);background:rgba(29,78,216,0.06)">
-            <div class="form-card-title" style="color:var(--azul)">🏢 Direcionar para Empresa</div>
-            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Selecione a empresa que executará o serviço.</p>
+            <div class="form-card-title" style="color:var(--azul)">🏢 ${trocandoEmpresa ? 'Trocar Empresa' : 'Direcionar para Empresa'}</div>
+            ${trocandoEmpresa
+              ? `<p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">
+                   Empresa atual: <strong>${os.empresaDesignada}</strong>. Selecione outra para transferir a O.S.
+                   ${os.equipeDesignada ? `<br>A <strong>${os.equipeDesignada}</strong> será desvinculada — a nova empresa escolhe a própria equipe.` : ''}
+                 </p>`
+              : '<p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Selecione a empresa que executará o serviço.</p>'}
             <select class="form-input" id="selectEmpresa">
               <option value="">Selecione a empresa...</option>
-              ${S.empresas.map(e => `<option value="${e}">${e}</option>`).join('')}
+              ${S.empresas.map(e => `<option value="${e}"${e === os.empresaDesignada ? ' disabled' : ''}>${e}${e === os.empresaDesignada ? ' (atual)' : ''}</option>`).join('')}
             </select>
             ${S.empresas.length ? '' : '<p style="font-size:12px;color:var(--vermelho);margin-top:6px">Nenhuma empresa cadastrada. Cadastre um usuário do perfil Empresa primeiro.</p>'}
-            <button class="btn btn-primary" style="margin-top:10px" onclick="direcionarEmpresa('${os.id}')">🏢 Direcionar</button>
+            <button class="btn btn-primary" style="margin-top:10px" onclick="direcionarEmpresa('${os.id}')">🏢 ${trocandoEmpresa ? 'Trocar Empresa' : 'Direcionar'}</button>
           </div>`;
       }
 
@@ -3147,13 +3156,19 @@ async function testarConexaoSilencioso() {
 async function direcionarEmpresa(id) {
   const empresa = document.getElementById('selectEmpresa').value;
   if (!empresa) return toast('Selecione a empresa');
+  const os = S.osAberta;
+  const anterior = os && os.empresaDesignada;
+  // Trocar de empresa desfaz o encaminhamento à equipe atual — confirma antes.
+  if (anterior && !confirm(
+      `Transferir a O.S. de ${anterior} para ${empresa}?` +
+      (os.equipeDesignada ? `\n\nA ${os.equipeDesignada} será desvinculada e a nova empresa escolherá a própria equipe.` : ''))) return;
   try {
     const r = await apiFetch(`/api/ordens/${id}/direcionar`, {
       method: 'POST',
       body: JSON.stringify({ empresa }),
     });
     if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
-    toast(`OS encaminhada para ${empresa}!`);
+    toast(anterior ? `O.S. transferida para ${empresa}!` : `OS encaminhada para ${empresa}!`);
     fecharModal();
     carregarOS();
   } catch(e) { toast('Erro: ' + e.message); }
