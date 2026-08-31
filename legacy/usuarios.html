@@ -41,7 +41,7 @@ header {
   color: white;
   padding: 14px 18px;
   display: flex; align-items: center; gap: 12px;
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: 0; z-index: 20;
 }
 header .voltar {
   background: rgba(255,255,255,0.15); border: none; color: white;
@@ -52,8 +52,14 @@ header .voltar {
 }
 header .titulo { font-size: 16px; font-weight: 800; }
 header .sub { font-size: 11px; opacity: 0.65; }
+header .header-acoes { margin-left: auto; display: flex; gap: 8px; }
+header .header-acoes a {
+  background: rgba(255,255,255,0.15); color: white; text-decoration: none;
+  border-radius: 9px; height: 34px; padding: 0 12px; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+}
 
-.container { max-width: 720px; margin: 0 auto; padding: 18px 16px 0; }
+.container { max-width: 860px; margin: 0 auto; padding: 18px 16px 0; }
 
 .card {
   background: white; border-radius: var(--radius);
@@ -95,8 +101,10 @@ select.input {
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-primary { background: var(--primaria); color: white; }
 .btn-secondary { background: var(--cinza-bg); color: var(--cinza-escuro); border: 1.5px solid var(--cinza-borda); }
-.btn-danger { background: var(--vermelho-claro); color: var(--vermelho); }
+.btn-danger { background: var(--vermelho); color: white; }
+.btn-danger-suave { background: var(--vermelho-claro); color: var(--vermelho); }
 .btn-sm { padding: 7px 11px; font-size: 12px; border-radius: 8px; }
+.btn-bloco { width: 100%; }
 
 .alerta {
   padding: 11px 13px; border-radius: 10px; font-size: 13px;
@@ -106,11 +114,49 @@ select.input {
 .alerta-erro { background: var(--vermelho-claro); color: var(--vermelho); }
 .alerta-ok { background: var(--verde-claro); color: var(--verde); }
 
+/* ── Painel de categorias ─────────────────────────────────────────────────── */
+.resumo {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px; margin-bottom: 14px;
+}
+.resumo-item {
+  border: 1.5px solid var(--cinza-borda); border-radius: 11px;
+  padding: 10px 8px; text-align: center; cursor: pointer;
+  background: white; transition: border-color .15s, background .15s;
+}
+.resumo-item:hover { border-color: var(--primaria); }
+.resumo-item.ativo { border-color: var(--primaria); background: var(--primaria-clara); }
+.resumo-num { font-size: 20px; font-weight: 800; line-height: 1.1; }
+.resumo-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--cinza-texto); margin-top: 3px;
+}
+
+.barra-filtros { display: grid; gap: 10px; margin-bottom: 14px; }
+@media (min-width: 620px) { .barra-filtros { grid-template-columns: 2fr 1fr 1fr; } }
+
+.grupo { margin-bottom: 18px; }
+.grupo-cabecalho {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border-radius: 10px; cursor: pointer;
+  background: var(--cinza-bg); border: 1.5px solid var(--cinza-borda);
+  margin-bottom: 10px; user-select: none;
+}
+.grupo-cabecalho .seta { font-size: 11px; color: var(--cinza-texto); transition: transform .15s; }
+.grupo.fechado .seta { transform: rotate(-90deg); }
+.grupo.fechado .grupo-corpo { display: none; }
+.grupo-nome { font-size: 13px; font-weight: 800; }
+.grupo-contador {
+  margin-left: auto; font-size: 11px; font-weight: 700;
+  color: var(--cinza-texto); background: white;
+  border: 1px solid var(--cinza-borda); border-radius: 20px; padding: 2px 10px;
+}
+
 .usuario {
   border: 1.5px solid var(--cinza-borda); border-radius: 12px;
-  padding: 13px 14px; margin-bottom: 10px;
+  padding: 13px 14px; margin-bottom: 10px; background: white;
 }
-.usuario.inativo { background: #fafafa; }
+.usuario.inativo { background: #fafafa; border-style: dashed; }
 .usuario-topo { display: flex; align-items: flex-start; gap: 10px; }
 .usuario-info { flex: 1; min-width: 0; }
 .usuario-nome {
@@ -122,6 +168,7 @@ select.input {
   font-size: 12px; color: var(--cinza-texto); margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.usuario-meta { font-size: 11px; color: var(--cinza-texto); margin-top: 6px; }
 .badges { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
 .badge {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
@@ -133,11 +180,12 @@ select.input {
 .badge-goldman  { background: var(--roxo-claro); color: var(--roxo); }
 .badge-gestor   { background: #dcfce7; color: #166534; }
 .badge-equipe   { background: var(--laranja-claro); color: var(--laranja); }
+.badge-empresa  { background: #f1f5f9; color: #334155; }
 .badge-ativo    { background: var(--verde-claro); color: var(--verde); }
 .badge-inativo  { background: var(--vermelho-claro); color: var(--vermelho); }
 .badge-voce     { background: #fef3c7; color: #92400e; }
 
-.acoes { display: flex; gap: 6px; flex-shrink: 0; }
+.acoes { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 
 .editor {
   margin-top: 13px; padding-top: 13px;
@@ -170,10 +218,37 @@ select.input {
 .negado h2 { font-size: 18px; margin-bottom: 8px; }
 .negado p { font-size: 13px; color: var(--cinza-texto); margin-bottom: 20px; }
 
-.equipe-select { display: none; margin-top: 8px; }
-.equipe-select.visivel { display: block; }
-.empresa-select { display: none; margin-top: 8px; }
-.empresa-select.visivel { display: block; }
+.equipe-select, .empresa-select { display: none; }
+.equipe-select.visivel, .empresa-select.visivel { display: block; }
+
+/* ── Modal de exclusão ────────────────────────────────────────────────────── */
+.modal-fundo {
+  position: fixed; inset: 0; background: rgba(15,20,30,0.55);
+  display: none; align-items: center; justify-content: center;
+  z-index: 900; padding: 18px;
+}
+.modal-fundo.aberto { display: flex; }
+.modal-caixa {
+  background: white; border-radius: var(--radius); padding: 22px;
+  max-width: 440px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+}
+.modal-caixa h3 { font-size: 17px; margin-bottom: 8px; }
+.modal-caixa p { font-size: 13px; color: var(--cinza-texto); line-height: 1.5; margin-bottom: 12px; }
+.modal-aviso {
+  background: var(--vermelho-claro); color: var(--vermelho);
+  border-radius: 10px; padding: 10px 12px; font-size: 12.5px;
+  font-weight: 600; margin-bottom: 14px; line-height: 1.45;
+}
+.modal-acoes { display: flex; gap: 8px; }
+.modal-acoes .btn { flex: 1; }
+
+.form-recolhivel .form-corpo { display: none; }
+.form-recolhivel.aberto .form-corpo { display: block; }
+.form-toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  width: 100%; background: none; border: none; font: inherit;
+  color: inherit; text-align: left; padding: 0;
+}
 </style>
 </head>
 <body>
@@ -184,76 +259,108 @@ select.input {
     <div class="titulo">👥 Usuários</div>
     <div class="sub">Sistema de O.S. — SINFRA / PMJP</div>
   </div>
+  <div class="header-acoes">
+    <a href="/auditoria.html" title="Log de acessos e movimentações">🧾 Auditoria</a>
+  </div>
 </header>
 
 <div id="conteudo" style="display:none">
   <div class="container">
 
-    <div class="card">
-      <div class="card-titulo">➕ Cadastrar novo usuário</div>
-      <div class="card-sub">O usuário poderá entrar no sistema com o e-mail e a senha definidos aqui.</div>
+    <div class="card form-recolhivel" id="cardNovo">
+      <button type="button" class="form-toggle" onclick="alternarFormNovo()">
+        <div style="flex:1">
+          <div class="card-titulo">➕ Cadastrar novo usuário</div>
+          <div class="card-sub" style="margin-bottom:0">O usuário entra no sistema com o e-mail e a senha definidos aqui.</div>
+        </div>
+        <span class="seta" id="setaFormNovo" style="font-size:13px;color:var(--cinza-texto)">▼</span>
+      </button>
 
-      <div class="alerta" id="alertaForm"></div>
+      <div class="form-corpo" style="margin-top:16px">
+        <div class="alerta" id="alertaForm"></div>
 
-      <form id="formNovo" onsubmit="criarUsuario(event)">
-        <div class="form-grid">
-          <div class="form-grid duplo">
-            <div>
-              <label class="label" for="nome">Nome completo</label>
-              <input class="input" type="text" id="nome" placeholder="Ex.: Maria Silva" required>
+        <form id="formNovo" onsubmit="criarUsuario(event)">
+          <div class="form-grid">
+            <div class="form-grid duplo">
+              <div>
+                <label class="label" for="nome">Nome completo</label>
+                <input class="input" type="text" id="nome" placeholder="Ex.: Maria Silva" required>
+              </div>
+              <div>
+                <label class="label" for="email">E-mail</label>
+                <input class="input" type="email" id="email" placeholder="maria@exemplo.com"
+                       autocomplete="off" required>
+              </div>
             </div>
-            <div>
-              <label class="label" for="email">E-mail</label>
-              <input class="input" type="email" id="email" placeholder="maria@exemplo.com"
-                     autocomplete="off" required>
+            <div class="form-grid duplo">
+              <div>
+                <label class="label" for="senha">Senha (mínimo 6 caracteres)</label>
+                <input class="input" type="text" id="senha" placeholder="••••••••"
+                       autocomplete="new-password" minlength="6" required>
+              </div>
+              <div>
+                <label class="label" for="perfil">Categoria de acesso</label>
+                <select class="input" id="perfil" onchange="toggleEquipeSelect('novo')">
+                  <option value="seinfra">SEINFRA — abre O.S. e acompanha tudo</option>
+                  <option value="assistente">Assistente — só abre O.S. e escolhe a empresa</option>
+                  <option value="goldman">Empresa — despacha para equipes</option>
+                  <option value="gestor">Gestor — valida e fecha a O.S.</option>
+                  <option value="equipe">Equipe — executa serviços em campo</option>
+                  <option value="admin">Admin — acesso total</option>
+                </select>
+              </div>
             </div>
-          </div>
-          <div class="form-grid duplo">
-            <div>
-              <label class="label" for="senha">Senha (mínimo 6 caracteres)</label>
-              <input class="input" type="text" id="senha" placeholder="••••••••"
-                     autocomplete="new-password" minlength="6" required>
+            <div class="empresa-select" id="empresaGoldmanNovo">
+              <label class="label" for="empresaGoldman">Nome da empresa</label>
+              <input class="input" type="text" id="empresaGoldman" placeholder="Ex.: Construtora Alfa" list="empresasSugestoes">
+              <datalist id="empresasSugestoes"></datalist>
             </div>
-            <div>
-              <label class="label" for="perfil">Perfil de acesso</label>
-              <select class="input" id="perfil" onchange="toggleEquipeSelect('novo')">
-                <option value="seinfra">SEINFRA — importa e valida O.S.</option>
-                <option value="assistente">Assistente — só abre O.S. e escolhe a empresa</option>
-                <option value="goldman">Empresa — despacha para equipes</option>
-                <option value="gestor">Gestor — valida o serviço da equipe</option>
-                <option value="equipe">Equipe — executa serviços</option>
-                <option value="admin">Admin — acesso total</option>
+            <div class="empresa-select" id="empresaSelectNovo">
+              <label class="label" for="empresaNome">Empresa vinculada</label>
+              <select class="input" id="empresaNome"></select>
+            </div>
+            <div class="equipe-select" id="equipeSelectNovo">
+              <label class="label" for="equipeNome">Equipe</label>
+              <select class="input" id="equipeNome">
+                <option value="Equipe 1">Equipe 1</option>
+                <option value="Equipe 2">Equipe 2</option>
+                <option value="Equipe 3">Equipe 3</option>
+                <option value="Equipe 4">Equipe 4</option>
+                <option value="Equipe 5">Equipe 5</option>
+                <option value="Equipe 6">Equipe 6</option>
               </select>
             </div>
+            <button type="submit" class="btn btn-primary" id="btnCriar">Cadastrar usuário</button>
           </div>
-          <div class="empresa-select" id="empresaGoldmanNovo">
-            <label class="label" for="empresaGoldman">Nome da empresa</label>
-            <input class="input" type="text" id="empresaGoldman" placeholder="Ex.: Construtora Alfa" list="empresasSugestoes">
-            <datalist id="empresasSugestoes"></datalist>
-          </div>
-          <div class="empresa-select" id="empresaSelectNovo">
-            <label class="label" for="empresaNome">Empresa vinculada</label>
-            <select class="input" id="empresaNome"></select>
-          </div>
-          <div class="equipe-select" id="equipeSelectNovo">
-            <label class="label" for="equipeNome">Equipe</label>
-            <select class="input" id="equipeNome">
-              <option value="Equipe 1">Equipe 1</option>
-              <option value="Equipe 2">Equipe 2</option>
-              <option value="Equipe 3">Equipe 3</option>
-              <option value="Equipe 4">Equipe 4</option>
-              <option value="Equipe 5">Equipe 5</option>
-              <option value="Equipe 6">Equipe 6</option>
-            </select>
-          </div>
-          <button type="submit" class="btn btn-primary" id="btnCriar">Cadastrar usuário</button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-titulo">📋 Usuários cadastrados <span id="contador" style="font-weight:600;color:var(--cinza-texto);font-size:13px"></span></div>
-      <div class="card-sub">Toque em <strong>Editar</strong> para alterar dados, redefinir a senha ou desativar o acesso.</div>
+      <div class="card-sub">Toque numa categoria para filtrar. Use <strong>Editar</strong> para alterar dados e senha, <strong>Desativar</strong> para bloquear o acesso sem apagar o histórico, ou <strong>Excluir</strong> para remover a conta em definitivo.</div>
+
+      <div class="resumo" id="resumoCategorias"></div>
+
+      <div class="barra-filtros">
+        <input class="input" type="search" id="busca" placeholder="🔎 Buscar por nome, e-mail, empresa ou equipe..."
+               oninput="setBusca(this.value)">
+        <select class="input" id="filtroEmpresa" onchange="setFiltroEmpresa(this.value)">
+          <option value="todas">🏢 Todas as empresas</option>
+        </select>
+        <select class="input" id="filtroSituacao" onchange="setFiltroSituacao(this.value)">
+          <option value="todos">Ativos e inativos</option>
+          <option value="ativos">Somente ativos</option>
+          <option value="inativos">Somente inativos</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" id="btnAgruparPerfil" onclick="setAgrupamento('perfil')">Agrupar por categoria</button>
+        <button class="btn btn-secondary btn-sm" id="btnAgruparEmpresa" onclick="setAgrupamento('empresa')">Agrupar por empresa</button>
+        <button class="btn btn-secondary btn-sm" id="btnAgruparNenhum" onclick="setAgrupamento('nenhum')">Lista simples</button>
+      </div>
+
       <div id="lista"><div class="carregando">Carregando...</div></div>
     </div>
 
@@ -266,6 +373,19 @@ select.input {
     <h2>Acesso restrito</h2>
     <p>Somente usuários com perfil <strong>Admin</strong> podem gerenciar contas do sistema.</p>
     <a class="btn btn-secondary" href="/index.html" style="text-decoration:none;display:inline-block">Voltar ao sistema</a>
+  </div>
+</div>
+
+<!-- Confirmação de exclusão definitiva -->
+<div class="modal-fundo" id="modalExcluir" onclick="if(event.target===this) fecharModalExcluir()">
+  <div class="modal-caixa">
+    <h3>🗑️ Excluir usuário</h3>
+    <p id="modalExcluirTexto"></p>
+    <div class="modal-aviso" id="modalExcluirAviso"></div>
+    <div class="modal-acoes">
+      <button class="btn btn-secondary" onclick="fecharModalExcluir()">Cancelar</button>
+      <button class="btn btn-danger" id="btnConfirmarExcluir" onclick="confirmarExclusao()">Excluir definitivamente</button>
+    </div>
   </div>
 </div>
 
@@ -293,7 +413,7 @@ function esc(s) {
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
-function toast(msg, dur = 2400) {
+function toast(msg, dur = 2600) {
   document.querySelectorAll('.toast').forEach(t => t.remove());
   const t = document.createElement('div');
   t.className = 'toast';
@@ -311,12 +431,33 @@ function limparAlerta() {
   document.getElementById('alertaForm').className = 'alerta';
 }
 
-const PERFIL_LABEL = { admin: 'Administrador', seinfra: 'SEINFRA', assistente: 'Assistente', goldman: 'Empresa', gestor: 'Gestor', equipe: 'Equipe' };
+function fmtDataHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Categorias de acesso, na ordem em que fazem sentido no fluxo da O.S.
+const CATEGORIAS = [
+  { perfil: 'admin',      label: 'Administrador', plural: 'Admins',      icone: '🛡️', descricao: 'Acesso total ao sistema.' },
+  { perfil: 'seinfra',    label: 'SEINFRA',       plural: 'SEINFRA',     icone: '🏛️', descricao: 'Abre O.S. e acompanha a movimentação de todas elas.' },
+  { perfil: 'assistente', label: 'Assistente',    plural: 'Assistentes', icone: '🗒️', descricao: 'Auxiliar da SEINFRA: abre O.S. e escolhe a empresa.' },
+  { perfil: 'goldman',    label: 'Empresa',       plural: 'Empresas',    icone: '🏢', descricao: 'Recebe a O.S. e despacha para as equipes de campo.' },
+  { perfil: 'gestor',     label: 'Gestor',        plural: 'Gestores',    icone: '✅', descricao: 'Valida o serviço da equipe — a aprovação fecha a O.S.' },
+  { perfil: 'equipe',     label: 'Equipe',        plural: 'Equipes',     icone: '👷', descricao: 'Executa os serviços em campo e registra as fotos.' },
+];
+const PERFIL_LABEL = Object.fromEntries(CATEGORIAS.map(c => [c.perfil, c.label]));
+const PERFIL_ICONE = Object.fromEntries(CATEGORIAS.map(c => [c.perfil, c.icone]));
 const EQUIPES = ['Equipe 1', 'Equipe 2', 'Equipe 3', 'Equipe 4', 'Equipe 5', 'Equipe 6'];
+
 let EMPRESAS = [];   // carregado dinamicamente de /api/empresas
 let EU = {};
 let USUARIOS = [];
 let EDITANDO = null;
+let EXCLUINDO = null;
+const F = { categoria: 'todas', empresa: 'todas', situacao: 'todos', busca: '', agrupar: 'perfil' };
+const GRUPOS_FECHADOS = new Set();
 
 // Busca as empresas cadastradas e popula selects/datalists
 async function carregarEmpresas() {
@@ -332,28 +473,28 @@ async function carregarEmpresas() {
     : '<option value="">(nenhuma empresa cadastrada)</option>';
 }
 
+function alternarFormNovo() {
+  document.getElementById('cardNovo').classList.toggle('aberto');
+  const aberto = document.getElementById('cardNovo').classList.contains('aberto');
+  document.getElementById('setaFormNovo').textContent = aberto ? '▲' : '▼';
+}
+
 function toggleEquipeSelect(ctx) {
   if (ctx === 'novo') {
     const perfil = document.getElementById('perfil').value;
-    const isEquipe = perfil === 'equipe';
-    const isGoldman = perfil === 'goldman';
-    const isGestor = perfil === 'gestor';
-    document.getElementById('equipeSelectNovo').classList.toggle('visivel', isEquipe);
+    document.getElementById('equipeSelectNovo').classList.toggle('visivel', perfil === 'equipe');
     // Equipe e Gestor vinculam-se a uma empresa já cadastrada (select).
-    document.getElementById('empresaSelectNovo').classList.toggle('visivel', isEquipe || isGestor);
+    document.getElementById('empresaSelectNovo').classList.toggle('visivel', perfil === 'equipe' || perfil === 'gestor');
     // Empresa (goldman) define/cria o nome da empresa (texto livre).
-    document.getElementById('empresaGoldmanNovo').classList.toggle('visivel', isGoldman);
+    document.getElementById('empresaGoldmanNovo').classList.toggle('visivel', perfil === 'goldman');
   } else {
     const perfil = document.getElementById(`e-perfil-${ctx}`).value;
-    const isEquipe = perfil === 'equipe';
-    const isGoldman = perfil === 'goldman';
-    const isGestor = perfil === 'gestor';
     const el = document.getElementById(`e-equipe-wrap-${ctx}`);
-    if (el) el.classList.toggle('visivel', isEquipe);
+    if (el) el.classList.toggle('visivel', perfil === 'equipe');
     const empEl = document.getElementById(`e-empresa-wrap-${ctx}`);
-    if (empEl) empEl.classList.toggle('visivel', isEquipe || isGestor);
+    if (empEl) empEl.classList.toggle('visivel', perfil === 'equipe' || perfil === 'gestor');
     const empGoldEl = document.getElementById(`e-empresa-goldman-wrap-${ctx}`);
-    if (empGoldEl) empGoldEl.classList.toggle('visivel', isGoldman);
+    if (empGoldEl) empGoldEl.classList.toggle('visivel', perfil === 'goldman');
   }
 }
 
@@ -386,107 +527,218 @@ async function carregarUsuarios() {
   }
 }
 
-function renderizar() {
-  const el = document.getElementById('lista');
-  document.getElementById('contador').textContent =
-    USUARIOS.length ? `(${USUARIOS.length})` : '';
+// ── Filtros ───────────────────────────────────────────────────────────────────
+function setCategoria(p) { F.categoria = (F.categoria === p ? 'todas' : p); renderizar(); }
+function setBusca(v) { F.busca = v.trim().toLowerCase(); renderizar(); }
+function setFiltroEmpresa(v) { F.empresa = v; renderizar(); }
+function setFiltroSituacao(v) { F.situacao = v; renderizar(); }
+function setAgrupamento(v) { F.agrupar = v; renderizar(); }
 
-  if (!USUARIOS.length) {
-    el.innerHTML = '<div class="vazio">Nenhum usuário cadastrado.</div>';
+function usuariosFiltrados() {
+  return USUARIOS.filter(u => {
+    if (F.categoria !== 'todas' && u.perfil !== F.categoria) return false;
+    if (F.situacao === 'ativos' && !u.ativo) return false;
+    if (F.situacao === 'inativos' && u.ativo) return false;
+    if (F.empresa !== 'todas') {
+      if (F.empresa === '__sem__') { if (u.empresa) return false; }
+      else if (u.empresa !== F.empresa) return false;
+    }
+    if (F.busca) {
+      const alvo = [u.nome, u.email, u.empresa, u.equipe_nome, PERFIL_LABEL[u.perfil] || u.perfil]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!alvo.includes(F.busca)) return false;
+    }
+    return true;
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderizar() {
+  renderResumo();
+  renderFiltroEmpresa();
+  ['perfil', 'empresa', 'nenhum'].forEach(v => {
+    const b = document.getElementById('btnAgrupar' + v[0].toUpperCase() + v.slice(1));
+    if (b) {
+      b.classList.toggle('btn-primary', F.agrupar === v);
+      b.classList.toggle('btn-secondary', F.agrupar !== v);
+    }
+  });
+
+  const lista = usuariosFiltrados();
+  document.getElementById('contador').textContent =
+    lista.length === USUARIOS.length ? `(${USUARIOS.length})` : `(${lista.length} de ${USUARIOS.length})`;
+
+  const el = document.getElementById('lista');
+  if (!USUARIOS.length) { el.innerHTML = '<div class="vazio">Nenhum usuário cadastrado.</div>'; return; }
+  if (!lista.length) { el.innerHTML = '<div class="vazio">Nenhum usuário corresponde aos filtros.</div>'; return; }
+
+  if (F.agrupar === 'nenhum') {
+    el.innerHTML = lista.map(cartaoUsuario).join('');
     return;
   }
 
-  el.innerHTML = USUARIOS.map(u => {
-    const souEu = u.id === EU.id;
-    const equipeBadge = u.equipe_nome ? `<span class="badge badge-equipe">${esc(u.equipe_nome)}</span>` : '';
-    const empresaBadge = u.empresa ? `<span class="badge badge-goldman">${esc(u.empresa)}</span>` : '';
-    const equipeOpts = EQUIPES.map(eq =>
-      `<option value="${esc(eq)}" ${u.equipe_nome === eq ? 'selected' : ''}>${esc(eq)}</option>`
-    ).join('');
-    const listaEmp = EMPRESAS.slice();
-    if (u.empresa && !listaEmp.includes(u.empresa)) listaEmp.push(u.empresa);
-    const empresaOpts = listaEmp.map(emp =>
-      `<option value="${esc(emp)}" ${u.empresa === emp ? 'selected' : ''}>${esc(emp)}</option>`
-    ).join('') || '<option value="">(nenhuma empresa cadastrada)</option>';
+  const grupos = new Map();
+  if (F.agrupar === 'perfil') {
+    for (const c of CATEGORIAS) grupos.set(c.perfil, []);
+    lista.forEach(u => {
+      if (!grupos.has(u.perfil)) grupos.set(u.perfil, []);
+      grupos.get(u.perfil).push(u);
+    });
+  } else {
+    lista.forEach(u => {
+      const chave = u.empresa || '__sem__';
+      if (!grupos.has(chave)) grupos.set(chave, []);
+      grupos.get(chave).push(u);
+    });
+  }
 
-    return `
-    <div class="usuario ${u.ativo ? '' : 'inativo'}">
-      <div class="usuario-topo">
-        <div class="usuario-info">
-          <div class="usuario-nome">${esc(u.nome)}</div>
-          <div class="usuario-email">${esc(u.email)}</div>
-          <div class="badges">
-            <span class="badge badge-${esc(u.perfil)}">${esc(PERFIL_LABEL[u.perfil] || u.perfil)}</span>
-            ${equipeBadge}
-            ${empresaBadge}
-            <span class="badge ${u.ativo ? 'badge-ativo' : 'badge-inativo'}">${u.ativo ? 'Ativo' : 'Inativo'}</span>
-            ${souEu ? '<span class="badge badge-voce">Você</span>' : ''}
+  el.innerHTML = [...grupos.entries()]
+    .filter(([, us]) => us.length)
+    .map(([chave, us]) => {
+      const cat = CATEGORIAS.find(c => c.perfil === chave);
+      const titulo = F.agrupar === 'perfil'
+        ? `${cat ? cat.icone : '👤'} ${cat ? cat.plural : chave}`
+        : (chave === '__sem__' ? '— Sem empresa vinculada' : `🏢 ${esc(chave)}`);
+      const sub = F.agrupar === 'perfil' && cat ? cat.descricao : '';
+      const fechado = GRUPOS_FECHADOS.has(chave) ? ' fechado' : '';
+      return `
+        <div class="grupo${fechado}" id="grupo-${esc(chave)}">
+          <div class="grupo-cabecalho" onclick="alternarGrupo('${esc(chave)}')">
+            <span class="seta">▼</span>
+            <div>
+              <div class="grupo-nome">${titulo}</div>
+              ${sub ? `<div style="font-size:11px;color:var(--cinza-texto);margin-top:1px">${esc(sub)}</div>` : ''}
+            </div>
+            <span class="grupo-contador">${us.length}</span>
           </div>
+          <div class="grupo-corpo">${us.map(cartaoUsuario).join('')}</div>
+        </div>`;
+    }).join('');
+}
+
+function alternarGrupo(chave) {
+  if (GRUPOS_FECHADOS.has(chave)) GRUPOS_FECHADOS.delete(chave);
+  else GRUPOS_FECHADOS.add(chave);
+  renderizar();
+}
+
+function renderResumo() {
+  const cont = document.getElementById('resumoCategorias');
+  const total = USUARIOS.length;
+  const itens = [
+    `<div class="resumo-item ${F.categoria === 'todas' ? 'ativo' : ''}" onclick="setCategoria('todas')">
+       <div class="resumo-num">${total}</div><div class="resumo-label">Todos</div>
+     </div>`,
+    ...CATEGORIAS.map(c => {
+      const n = USUARIOS.filter(u => u.perfil === c.perfil).length;
+      const inativos = USUARIOS.filter(u => u.perfil === c.perfil && !u.ativo).length;
+      return `<div class="resumo-item ${F.categoria === c.perfil ? 'ativo' : ''}" onclick="setCategoria('${c.perfil}')" title="${esc(c.descricao)}">
+        <div class="resumo-num">${n}</div>
+        <div class="resumo-label">${c.icone} ${esc(c.plural)}${inativos ? ` · ${inativos} inat.` : ''}</div>
+      </div>`;
+    }),
+  ];
+  cont.innerHTML = itens.join('');
+}
+
+function renderFiltroEmpresa() {
+  const sel = document.getElementById('filtroEmpresa');
+  if (!sel) return;
+  const empresas = [...new Set([
+    ...EMPRESAS,
+    ...USUARIOS.map(u => u.empresa).filter(Boolean),
+  ])].sort((a, b) => a.localeCompare(b, 'pt'));
+  const temSem = USUARIOS.some(u => !u.empresa);
+  if (F.empresa !== 'todas' && F.empresa !== '__sem__' && !empresas.includes(F.empresa)) F.empresa = 'todas';
+  sel.innerHTML = '<option value="todas">🏢 Todas as empresas</option>'
+    + empresas.map(e => `<option value="${esc(e)}"${F.empresa === e ? ' selected' : ''}>🏢 ${esc(e)}</option>`).join('')
+    + (temSem ? `<option value="__sem__"${F.empresa === '__sem__' ? ' selected' : ''}>(sem empresa)</option>` : '');
+}
+
+function cartaoUsuario(u) {
+  const souEu = u.id === EU.id;
+  const equipeBadge = u.equipe_nome ? `<span class="badge badge-equipe">👷 ${esc(u.equipe_nome)}</span>` : '';
+  const empresaBadge = u.empresa ? `<span class="badge badge-empresa">🏢 ${esc(u.empresa)}</span>` : '';
+  const equipeOpts = EQUIPES.map(eq =>
+    `<option value="${esc(eq)}" ${u.equipe_nome === eq ? 'selected' : ''}>${esc(eq)}</option>`
+  ).join('');
+  const listaEmp = EMPRESAS.slice();
+  if (u.empresa && !listaEmp.includes(u.empresa)) listaEmp.push(u.empresa);
+  const empresaOpts = listaEmp.map(emp =>
+    `<option value="${esc(emp)}" ${u.empresa === emp ? 'selected' : ''}>${esc(emp)}</option>`
+  ).join('') || '<option value="">(nenhuma empresa cadastrada)</option>';
+
+  return `
+  <div class="usuario ${u.ativo ? '' : 'inativo'}">
+    <div class="usuario-topo">
+      <div class="usuario-info">
+        <div class="usuario-nome">${esc(u.nome)}</div>
+        <div class="usuario-email">${esc(u.email)}</div>
+        <div class="badges">
+          <span class="badge badge-${esc(u.perfil)}">${PERFIL_ICONE[u.perfil] || '👤'} ${esc(PERFIL_LABEL[u.perfil] || u.perfil)}</span>
+          ${equipeBadge}
+          ${empresaBadge}
+          <span class="badge ${u.ativo ? 'badge-ativo' : 'badge-inativo'}">${u.ativo ? 'Ativo' : 'Inativo'}</span>
+          ${souEu ? '<span class="badge badge-voce">Você</span>' : ''}
         </div>
-        <div class="acoes">
-          <button class="btn btn-secondary btn-sm" onclick="alternarEditor('${u.id}')">Editar</button>
+        <div class="usuario-meta">
+          Cadastrado em ${esc(fmtDataHora(u.criado_em)) || '—'}
+          ${u.ultimo_acesso ? ` · último acesso ${esc(fmtDataHora(u.ultimo_acesso))}` : ' · nunca entrou'}
         </div>
       </div>
+      <div class="acoes">
+        <button class="btn btn-secondary btn-sm" onclick="alternarEditor('${u.id}')">${EDITANDO === u.id ? 'Fechar' : 'Editar'}</button>
+        ${souEu ? '' : `
+          <button class="btn btn-secondary btn-sm" onclick="alternarAtivo('${u.id}', ${!u.ativo})">${u.ativo ? 'Desativar' : 'Reativar'}</button>
+          <button class="btn btn-danger-suave btn-sm" onclick="abrirModalExcluir('${u.id}')">Excluir</button>
+        `}
+      </div>
+    </div>
 
-      <div class="editor ${EDITANDO === u.id ? 'aberto' : ''}" id="editor-${u.id}">
-        <div class="form-grid">
-          <div class="form-grid duplo">
-            <div>
-              <label class="label">Nome</label>
-              <input class="input" id="e-nome-${u.id}" type="text" value="${esc(u.nome)}">
-            </div>
-            <div>
-              <label class="label">E-mail</label>
-              <input class="input" id="e-email-${u.id}" type="email" value="${esc(u.email)}">
-            </div>
+    <div class="editor ${EDITANDO === u.id ? 'aberto' : ''}" id="editor-${u.id}">
+      <div class="form-grid">
+        <div class="form-grid duplo">
+          <div>
+            <label class="label">Nome</label>
+            <input class="input" id="e-nome-${u.id}" type="text" value="${esc(u.nome)}">
           </div>
-          <div class="form-grid duplo">
-            <div>
-              <label class="label">Nova senha (deixe em branco p/ manter)</label>
-              <input class="input" id="e-senha-${u.id}" type="text" placeholder="Não alterar"
-                     autocomplete="new-password">
-            </div>
-            <div>
-              <label class="label">Perfil</label>
-              <select class="input" id="e-perfil-${u.id}" ${souEu ? 'disabled' : ''} onchange="toggleEquipeSelect('${u.id}')">
-                <option value="seinfra"    ${u.perfil === 'seinfra'    ? 'selected' : ''}>SEINFRA</option>
-                <option value="assistente" ${u.perfil === 'assistente' ? 'selected' : ''}>Assistente</option>
-                <option value="goldman"    ${u.perfil === 'goldman'    ? 'selected' : ''}>Empresa</option>
-                <option value="gestor"     ${u.perfil === 'gestor'     ? 'selected' : ''}>Gestor</option>
-                <option value="equipe"     ${u.perfil === 'equipe'     ? 'selected' : ''}>Equipe</option>
-                <option value="admin"      ${u.perfil === 'admin'      ? 'selected' : ''}>Admin</option>
-              </select>
-            </div>
-          </div>
-          <div class="empresa-select ${u.perfil === 'goldman' ? 'visivel' : ''}" id="e-empresa-goldman-wrap-${u.id}">
-            <label class="label">Nome da empresa</label>
-            <input class="input" type="text" id="e-empresa-goldman-${u.id}" value="${esc(u.empresa || '')}" placeholder="Ex.: Construtora Alfa">
-          </div>
-          <div class="empresa-select ${u.perfil === 'equipe' || u.perfil === 'gestor' ? 'visivel' : ''}" id="e-empresa-wrap-${u.id}">
-            <label class="label">Empresa vinculada</label>
-            <select class="input" id="e-empresa-${u.id}">
-              ${empresaOpts}
-            </select>
-          </div>
-          <div class="equipe-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-equipe-wrap-${u.id}">
-            <label class="label">Equipe</label>
-            <select class="input" id="e-equipe-${u.id}">
-              ${equipeOpts}
-            </select>
-          </div>
-          <div class="editor-acoes">
-            <button class="btn btn-primary btn-sm" onclick="salvarUsuario('${u.id}')">Salvar alterações</button>
-            ${souEu ? '' : `
-              <button class="btn btn-secondary btn-sm" onclick="alternarAtivo('${u.id}', ${!u.ativo})">
-                ${u.ativo ? 'Desativar acesso' : 'Reativar acesso'}
-              </button>
-              <button class="btn btn-danger btn-sm" onclick="excluirUsuario('${u.id}')">Excluir</button>
-            `}
+          <div>
+            <label class="label">E-mail</label>
+            <input class="input" id="e-email-${u.id}" type="email" value="${esc(u.email)}">
           </div>
         </div>
+        <div class="form-grid duplo">
+          <div>
+            <label class="label">Nova senha (deixe em branco p/ manter)</label>
+            <input class="input" id="e-senha-${u.id}" type="text" placeholder="Não alterar"
+                   autocomplete="new-password">
+          </div>
+          <div>
+            <label class="label">Categoria de acesso</label>
+            <select class="input" id="e-perfil-${u.id}" ${souEu ? 'disabled' : ''} onchange="toggleEquipeSelect('${u.id}')">
+              ${CATEGORIAS.map(c => `<option value="${c.perfil}" ${u.perfil === c.perfil ? 'selected' : ''}>${c.icone} ${esc(c.label)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="empresa-select ${u.perfil === 'goldman' ? 'visivel' : ''}" id="e-empresa-goldman-wrap-${u.id}">
+          <label class="label">Nome da empresa</label>
+          <input class="input" type="text" id="e-empresa-goldman-${u.id}" value="${esc(u.empresa || '')}" placeholder="Ex.: Construtora Alfa">
+        </div>
+        <div class="empresa-select ${u.perfil === 'equipe' || u.perfil === 'gestor' ? 'visivel' : ''}" id="e-empresa-wrap-${u.id}">
+          <label class="label">Empresa vinculada</label>
+          <select class="input" id="e-empresa-${u.id}">${empresaOpts}</select>
+        </div>
+        <div class="equipe-select ${u.perfil === 'equipe' ? 'visivel' : ''}" id="e-equipe-wrap-${u.id}">
+          <label class="label">Equipe</label>
+          <select class="input" id="e-equipe-${u.id}">${equipeOpts}</select>
+        </div>
+        <div class="editor-acoes">
+          <button class="btn btn-primary btn-sm" onclick="salvarUsuario('${u.id}')">Salvar alterações</button>
+          <button class="btn btn-secondary btn-sm" onclick="alternarEditor('${u.id}')">Cancelar</button>
+        </div>
       </div>
-    </div>`;
-  }).join('');
+    </div>
+  </div>`;
 }
 
 function alternarEditor(id) {
@@ -510,13 +762,13 @@ async function criarUsuario(e) {
   if (perfil === 'equipe') {
     corpo.equipe_nome = document.getElementById('equipeNome').value;
     corpo.empresa = document.getElementById('empresaNome').value;
-    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (perfil Empresa) antes de criar equipes.'); return; }
+    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (categoria Empresa) antes de criar equipes.'); return; }
   } else if (perfil === 'gestor') {
     corpo.empresa = document.getElementById('empresaNome').value;
-    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (perfil Empresa) antes de criar um gestor.'); return; }
+    if (!corpo.empresa) { alertaForm('Cadastre uma empresa (categoria Empresa) antes de criar um gestor.'); return; }
   } else if (perfil === 'goldman') {
     corpo.empresa = document.getElementById('empresaGoldman').value.trim();
-    if (!corpo.empresa) { alertaForm('Informe o nome da empresa para o perfil Empresa.'); return; }
+    if (!corpo.empresa) { alertaForm('Informe o nome da empresa.'); return; }
   }
 
   btn.disabled = true;
@@ -534,7 +786,7 @@ async function criarUsuario(e) {
     document.getElementById('empresaSelectNovo').classList.remove('visivel');
     document.getElementById('empresaGoldmanNovo').classList.remove('visivel');
     alertaForm(`Usuário ${data.nome} cadastrado com sucesso.`, 'ok');
-    await carregarEmpresas();  // uma nova empresa goldman pode ter sido criada
+    await carregarEmpresas();  // uma nova empresa pode ter sido criada
     await carregarUsuarios();
   } catch (err) {
     alertaForm('Erro de conexão: ' + err.message);
@@ -590,27 +842,65 @@ async function salvarUsuario(id) {
 
   EDITANDO = null;
   const ok = await atualizar(id, corpo, senha ? 'Dados e senha atualizados' : 'Dados atualizados');
-  if (ok && perfil === 'goldman') await carregarEmpresas();
+  if (ok) await carregarEmpresas();
 }
 
 async function alternarAtivo(id, ativo) {
   const u = USUARIOS.find(x => x.id === id);
-  if (!ativo && !confirm(`Desativar o acesso de ${u.nome}? A pessoa não conseguirá mais entrar no sistema.`)) return;
+  if (!u) return;
+  if (!ativo && !confirm(`Desativar o acesso de ${u.nome}?\n\nA pessoa deixa de entrar no sistema, mas a conta e o histórico continuam guardados.`)) return;
   await atualizar(id, { ativo }, ativo ? 'Acesso reativado' : 'Acesso desativado');
 }
 
-async function excluirUsuario(id) {
+// ── Exclusão definitiva ───────────────────────────────────────────────────────
+function abrirModalExcluir(id) {
   const u = USUARIOS.find(x => x.id === id);
-  if (!confirm(`Excluir definitivamente o usuário ${u.nome}?\n\nEssa ação não pode ser desfeita. Para bloquear o acesso temporariamente, use "Desativar acesso".`)) return;
+  if (!u) return;
+  EXCLUINDO = id;
+
+  const avisos = [];
+  if (u.perfil === 'admin') {
+    const outros = USUARIOS.filter(x => x.perfil === 'admin' && x.ativo && x.id !== u.id).length;
+    if (!outros) avisos.push('É o único outro administrador ativo — depois disso você fica sendo o único admin do sistema.');
+  }
+  if (u.empresa) {
+    const mesmaEmpresa = USUARIOS.filter(x => x.empresa === u.empresa && x.id !== u.id).length;
+    if (!mesmaEmpresa)
+      avisos.push(`É o único usuário da empresa "${u.empresa}". Ao excluí-lo, a empresa deixa de aparecer para direcionamento de novas O.S. (as O.S. já direcionadas continuam intactas).`);
+  }
+  avisos.push('A exclusão é definitiva e não pode ser desfeita. Para apenas bloquear o acesso, use "Desativar".');
+
+  document.getElementById('modalExcluirTexto').innerHTML =
+    `Excluir <strong>${esc(u.nome)}</strong> (${esc(u.email)}) — ${esc(PERFIL_LABEL[u.perfil] || u.perfil)}${u.empresa ? ' · ' + esc(u.empresa) : ''}?`;
+  document.getElementById('modalExcluirAviso').innerHTML = avisos.map(a => `⚠️ ${esc(a)}`).join('<br><br>');
+  document.getElementById('modalExcluir').classList.add('aberto');
+}
+
+function fecharModalExcluir() {
+  EXCLUINDO = null;
+  document.getElementById('modalExcluir').classList.remove('aberto');
+}
+
+async function confirmarExclusao() {
+  const id = EXCLUINDO;
+  if (!id) return;
+  const btn = document.getElementById('btnConfirmarExcluir');
+  btn.disabled = true;
+  btn.textContent = 'Excluindo...';
   try {
     const r = await apiFetch(`/api/auth/usuarios/${id}`, { method: 'DELETE' });
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) { toast(data.erro || 'Erro ao excluir'); return; }
     EDITANDO = null;
-    toast('Usuário excluído');
+    fecharModalExcluir();
+    toast('Usuário excluído definitivamente');
+    await carregarEmpresas();
     await carregarUsuarios();
   } catch (e) {
     toast('Erro de conexão: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Excluir definitivamente';
   }
 }
 </script>

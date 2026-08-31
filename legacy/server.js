@@ -24,6 +24,7 @@ const pool = new Pool({
 const JWT_SECRET = process.env.JWT_SECRET || 'mude-isso-em-producao-defina-JWT_SECRET';
 const JWT_EXPIRY = '8h';
 
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname));
@@ -276,6 +277,35 @@ async function iniciarBanco() {
     }
   }
 
+  // ─── Tabela de auditoria ───────────────────────────────────────────────────
+  // Registra entradas no sistema (login/logout) e toda movimentação relevante
+  // de O.S. e de usuários, para consulta posterior (auditoria).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auditoria (
+      id            TEXT PRIMARY KEY,
+      criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      usuario_id    TEXT,
+      usuario_nome  TEXT,
+      usuario_email TEXT,
+      perfil        TEXT,
+      empresa       TEXT,
+      categoria     TEXT NOT NULL DEFAULT 'sistema',
+      acao          TEXT NOT NULL,
+      entidade      TEXT,
+      entidade_id   TEXT,
+      entidade_ref  TEXT,
+      descricao     TEXT,
+      detalhe       JSONB NOT NULL DEFAULT '{}',
+      ip            TEXT,
+      user_agent    TEXT
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_criado_em ON auditoria (criado_em DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_acao ON auditoria (acao)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_categoria ON auditoria (categoria)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria (usuario_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_entidade ON auditoria (entidade_id)`);
+
   console.log('Banco de dados pronto!');
 }
 
@@ -378,6 +408,47 @@ function mapRow(r, incluirFotos) {
   };
 }
 
+// ─── Auditoria ────────────────────────────────────────────────────────────────
+// Toda entrada no sistema e toda movimentação de O.S./usuário viram uma linha
+// aqui. É registro de auditoria: nunca pode derrubar a requisição que o gerou,
+// por isso qualquer erro de gravação é apenas logado no console.
+const CATEGORIAS_AUDITORIA = ['acesso', 'ordem', 'usuario', 'sistema'];
+
+function ipDaRequisicao(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  const ip = (Array.isArray(fwd) ? fwd[0] : (fwd || '').split(',')[0].trim())
+    || req.ip || (req.socket && req.socket.remoteAddress) || '';
+  return ip.replace(/^::ffff:/, '').slice(0, 60) || null;
+}
+
+async function auditar(req, dados) {
+  try {
+    const u = dados.usuario || (req && req.usuario) || {};
+    await pool.query(
+      `INSERT INTO auditoria
+         (id, usuario_id, usuario_nome, usuario_email, perfil, empresa,
+          categoria, acao, entidade, entidade_id, entidade_ref, descricao,
+          detalhe, ip, user_agent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [
+        uuidv4(), u.id || null, u.nome || null, u.email || null,
+        u.perfil || null, u.empresa || null,
+        CATEGORIAS_AUDITORIA.includes(dados.categoria) ? dados.categoria : 'sistema',
+        String(dados.acao || 'desconhecida').slice(0, 60),
+        dados.entidade || null,
+        dados.entidadeId || null,
+        dados.entidadeRef ? String(dados.entidadeRef).slice(0, 120) : null,
+        dados.descricao ? String(dados.descricao).slice(0, 500) : null,
+        JSON.stringify(dados.detalhe || {}),
+        req ? ipDaRequisicao(req) : null,
+        req ? String(req.headers['user-agent'] || '').slice(0, 300) : null,
+      ]
+    );
+  } catch (e) {
+    console.error('auditoria:', e.message);
+  }
+}
+
 // ─── Auth / usuários ───────────────────────────────────────────────────────────
 function autenticar(papeis) {
   return async (req, res, next) => {
@@ -415,16 +486,40 @@ const validadores    = autenticar(['admin', 'seinfra', 'gestor']);
 app.post('/api/auth/login', async (req, res) => {
   const { email, senha } = req.body;
   if (!email || !senha) return res.status(400).json({ erro: 'Email e senha obrigatórios' });
+  const emailNorm = String(email).toLowerCase().trim();
   try {
     const { rows } = await pool.query(
       'SELECT * FROM usuarios WHERE email = $1',
-      [String(email).toLowerCase().trim()]
+      [emailNorm]
     );
     const u = rows[0];
-    if (!u || !u.ativo) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    // Toda tentativa de entrada (inclusive as que falham) fica registrada.
+    if (!u || !u.ativo) {
+      auditar(req, {
+        categoria: 'acesso', acao: 'login_falhou',
+        usuario: u ? { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, empresa: u.empresa } : { email: emailNorm },
+        entidade: 'usuario', entidadeId: u ? u.id : null, entidadeRef: emailNorm,
+        descricao: u ? 'Tentativa de entrada com usuário inativo' : 'Tentativa de entrada com e-mail não cadastrado',
+      });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
+    }
     const ok = await bcrypt.compare(String(senha), u.senha_hash);
-    if (!ok) return res.status(401).json({ erro: 'Credenciais inválidas' });
+    if (!ok) {
+      auditar(req, {
+        categoria: 'acesso', acao: 'login_falhou',
+        usuario: { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, empresa: u.empresa },
+        entidade: 'usuario', entidadeId: u.id, entidadeRef: u.email,
+        descricao: 'Senha incorreta',
+      });
+      return res.status(401).json({ erro: 'Credenciais inválidas' });
+    }
     await pool.query('UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = $1', [u.id]);
+    auditar(req, {
+      categoria: 'acesso', acao: 'login',
+      usuario: { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, empresa: u.empresa },
+      entidade: 'usuario', entidadeId: u.id, entidadeRef: u.email,
+      descricao: `Entrou no sistema como ${u.perfil}`,
+    });
     const payload = { sub: u.id, perfil: u.perfil };
     if (u.equipe_nome) payload.equipe_nome = u.equipe_nome;
     if (u.empresa) payload.empresa = u.empresa;
@@ -439,6 +534,16 @@ app.post('/api/auth/login', async (req, res) => {
 // Usuário atual
 app.get('/api/auth/me', qualquerUsuario, (req, res) => {
   res.json({ usuario: req.usuario });
+});
+
+// Saída do sistema — registrada para fechar o par entrada/saída na auditoria.
+app.post('/api/auth/logout', qualquerUsuario, (req, res) => {
+  auditar(req, {
+    categoria: 'acesso', acao: 'logout',
+    entidade: 'usuario', entidadeId: req.usuario.id, entidadeRef: req.usuario.email,
+    descricao: 'Saiu do sistema',
+  });
+  res.json({ ok: true });
 });
 
 // Listar usuários (admin)
@@ -476,6 +581,12 @@ app.post('/api/auth/usuarios', somenteAdmin, async (req, res) => {
        RETURNING id, nome, email, perfil, equipe_nome, empresa, ativo, criado_em`,
       [uuidv4(), nome.trim(), String(email).toLowerCase().trim(), hash, perfil, eqNome, empNome]
     );
+    auditar(req, {
+      categoria: 'usuario', acao: 'usuario_criado',
+      entidade: 'usuario', entidadeId: rows[0].id, entidadeRef: rows[0].email,
+      descricao: `Cadastrou o usuário ${rows[0].nome} (${perfil}${empNome ? ' · ' + empNome : ''})`,
+      detalhe: { perfil, equipe_nome: eqNome, empresa: empNome },
+    });
     res.json(rows[0]);
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ erro: 'Email já cadastrado' });
@@ -489,11 +600,27 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
   const u = req.usuario;
   if (u.perfil !== 'admin' && u.id !== id)
     return res.status(403).json({ erro: 'Sem permissão' });
-  const { nome, senha, perfil, equipe_nome, empresa, ativo } = req.body;
+  const { nome, email, senha, perfil, equipe_nome, empresa, ativo } = req.body;
   try {
+    const { rows: antes } = await pool.query(
+      'SELECT id, nome, email, perfil, equipe_nome, empresa, ativo FROM usuarios WHERE id = $1', [id]
+    );
+    if (!antes.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    const anterior = antes[0];
     const campos = [], vals = [];
     if (nome)  { vals.push(nome.trim()); campos.push(`nome = $${vals.length}`); }
-    if (senha) { vals.push(await bcrypt.hash(String(senha), 12)); campos.push(`senha_hash = $${vals.length}`); }
+    // O e-mail é a credencial de entrada — só o admin pode trocá-lo.
+    if (email && u.perfil === 'admin') {
+      const emailNorm = String(email).toLowerCase().trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailNorm))
+        return res.status(400).json({ erro: 'E-mail inválido' });
+      vals.push(emailNorm); campos.push(`email = $${vals.length}`);
+    }
+    if (senha) {
+      if (String(senha).length < 6)
+        return res.status(400).json({ erro: 'A senha precisa ter ao menos 6 caracteres' });
+      vals.push(await bcrypt.hash(String(senha), 12)); campos.push(`senha_hash = $${vals.length}`);
+    }
     if (u.perfil === 'admin') {
       if (perfil !== undefined) {
         if (!PERFIS_VALIDOS.includes(perfil))
@@ -518,20 +645,67 @@ app.put('/api/auth/usuarios/:id', qualquerUsuario, async (req, res) => {
       `UPDATE usuarios SET ${campos.join(', ')} WHERE id = $${vals.length}
        RETURNING id, nome, email, perfil, equipe_nome, empresa, ativo`,
       vals
-    );
+    ).catch(e => {
+      if (e.code === '23505') { e.statusHttp = 409; e.message = 'E-mail já cadastrado para outro usuário'; }
+      throw e;
+    });
     if (!rows.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
-    res.json(rows[0]);
-  } catch (e) { res.status(500).json({ erro: e.message }); }
+    const depois = rows[0];
+    // Descreve o que mudou de fato — a auditoria precisa dizer o "antes → depois".
+    const mudancas = {};
+    for (const campo of ['nome', 'email', 'perfil', 'equipe_nome', 'empresa', 'ativo']) {
+      if (depois[campo] !== anterior[campo])
+        mudancas[campo] = { de: anterior[campo], para: depois[campo] };
+    }
+    if (senha) mudancas.senha = { de: '••••', para: '••••' };
+    let acao = 'usuario_editado';
+    let descricao = `Alterou o usuário ${depois.nome}`;
+    if (mudancas.ativo) {
+      acao = depois.ativo ? 'usuario_reativado' : 'usuario_desativado';
+      descricao = `${depois.ativo ? 'Reativou' : 'Desativou'} o acesso de ${depois.nome}`;
+    } else if (senha && Object.keys(mudancas).length === 1) {
+      acao = 'usuario_senha_alterada';
+      descricao = `Redefiniu a senha de ${depois.nome}`;
+    }
+    auditar(req, {
+      categoria: 'usuario', acao,
+      entidade: 'usuario', entidadeId: depois.id, entidadeRef: depois.email,
+      descricao, detalhe: mudancas,
+    });
+    res.json(depois);
+  } catch (e) { res.status(e.statusHttp || 500).json({ erro: e.message }); }
 });
 
-// Desativar usuário (admin)
+// Excluir usuário definitivamente (admin).
+// Exclusão de verdade: a desativação continua disponível pelo PUT { ativo:false }.
+// O histórico das O.S. abertas pela pessoa é preservado (não há chave estrangeira),
+// e a exclusão fica registrada na auditoria.
 app.delete('/api/auth/usuarios/:id', somenteAdmin, async (req, res) => {
-  if (req.params.id === req.usuario.id)
-    return res.status(400).json({ erro: 'Não pode desativar a si mesmo' });
+  const { id } = req.params;
+  if (id === req.usuario.id)
+    return res.status(400).json({ erro: 'Você não pode excluir a própria conta' });
   try {
-    await pool.query('UPDATE usuarios SET ativo = false WHERE id = $1', [req.params.id]);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ erro: e.message }); }
+    const { rows } = await pool.query(
+      'SELECT id, nome, email, perfil, equipe_nome, empresa, ativo FROM usuarios WHERE id = $1', [id]
+    );
+    if (!rows.length) return res.status(404).json({ erro: 'Usuário não encontrado' });
+    const alvo = rows[0];
+
+    // O sistema nunca fica sem administrador: quem exclui é um admin ativo e
+    // não pode excluir a própria conta (verificado acima), então sempre sobra
+    // pelo menos um.
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    auditar(req, {
+      categoria: 'usuario', acao: 'usuario_excluido',
+      entidade: 'usuario', entidadeId: alvo.id, entidadeRef: alvo.email,
+      descricao: `Excluiu definitivamente o usuário ${alvo.nome} (${alvo.perfil}${alvo.empresa ? ' · ' + alvo.empresa : ''})`,
+      detalhe: alvo,
+    });
+    res.json({ ok: true, excluido: alvo });
+  } catch (e) {
+    console.error('DELETE /api/auth/usuarios/:id:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 app.get('/api/ping', async (req, res) => {
@@ -564,6 +738,10 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
   try {
     let filtro = '';
     const params = [];
+    // Visibilidade por perfil. Admin, SEINFRA e assistente NÃO recebem filtro:
+    // enxergam todas as O.S., de todas as empresas e em todos os status —
+    // é essa visão completa que permite à SEINFRA acompanhar a movimentação
+    // do sistema inteiro, inclusive as O.S. já fechadas pelo gestor.
     if (req.usuario.perfil === 'equipe') {
       params.push(req.usuario.equipe_nome || '');
       params.push(req.usuario.empresa || '');
@@ -667,6 +845,16 @@ app.post('/api/ordens', criadorOS, async (req, res) => {
       vals
     );
     await client.query('COMMIT');
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_criada',
+      entidade: 'ordem_servico', entidadeId: rows[0].id, entidadeRef: numero,
+      descricao: `Abriu a O.S. ${numero}${o.endereco ? ' — ' + o.endereco : ''}`,
+      detalhe: {
+        tipo: rows[0].tipo, bairro: rows[0].bairro, prioridade: rows[0].prioridade,
+        empresa: rows[0].empresa_designada, equipe: rows[0].equipe_designada,
+        status: rows[0].status,
+      },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -721,6 +909,12 @@ app.post('/api/ordens/importar', criadorOS, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_importadas',
+      entidade: 'ordem_servico', entidadeRef: `${numeros.length} O.S.`,
+      descricao: `Importou ${numeros.length} O.S. via CSV (${lista.length - numeros.length} linhas ignoradas)`,
+      detalhe: { importadas: numeros.length, ignoradas: lista.length - numeros.length, primeira: numeros[0] || null, ultima: numeros[numeros.length - 1] || null },
+    });
     res.json({ ok: true, importadas: numeros.length, ignoradas: lista.length - numeros.length, numeros });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -773,7 +967,22 @@ app.put('/api/ordens/:id', qualquerUsuario, async (req, res) => {
        o.empresaDesignada !== undefined ? (o.empresaDesignada || null) : cur.empresa_designada,
        o.equipeDesignada !== undefined ? (o.equipeDesignada || null) : cur.equipe_designada]
     );
-    res.json(mapRow(rows[0], true));
+    const alterado = rows[0];
+    const mudou = {};
+    for (const [campo, coluna] of [['status','status'], ['tipo','tipo'], ['descricao','descricao'],
+                                   ['endereco','endereco'], ['bairro','bairro'], ['prioridade','prioridade'],
+                                   ['responsavel','responsavel'], ['empresa','empresa_designada'],
+                                   ['equipe','equipe_designada']]) {
+      if (String(alterado[coluna] ?? '') !== String(cur[coluna] ?? ''))
+        mudou[campo] = { de: cur[coluna], para: alterado[coluna] };
+    }
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_editada',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: alterado.numero,
+      descricao: `Editou a O.S. ${alterado.numero}`,
+      detalhe: mudou,
+    });
+    res.json(mapRow(alterado, true));
   } catch (e) { console.error('PUT /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
@@ -786,7 +995,17 @@ app.delete('/api/ordens/:id', criadorOS, async (req, res) => {
       if (rows[0].criado_por !== req.usuario.id)
         return res.status(403).json({ erro: 'Você só pode excluir as O.S. que abriu.' });
     }
+    const { rows: alvo } = await pool.query(
+      'SELECT numero, endereco, bairro, status, empresa_designada FROM ordens_servico WHERE id = $1', [req.params.id]
+    );
+    if (!alvo.length) return res.status(404).json({ erro: 'Nao encontrada' });
     await pool.query('DELETE FROM ordens_servico WHERE id = $1', [req.params.id]);
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_excluida',
+      entidade: 'ordem_servico', entidadeId: req.params.id, entidadeRef: alvo[0].numero,
+      descricao: `Excluiu a O.S. ${alvo[0].numero}${alvo[0].endereco ? ' — ' + alvo[0].endereco : ''}`,
+      detalhe: alvo[0],
+    });
     res.json({ ok: true });
   } catch (e) { console.error('DELETE /api/ordens/:id:', e.message); res.status(500).json({ erro: e.message }); }
 });
@@ -826,6 +1045,12 @@ app.post('/api/ordens/:id/direcionar', criadorOS, async (req, res) => {
        WHERE id = $3 RETURNING *`,
       [empresa, JSON.stringify(historico), id]
     );
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_direcionada',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: `Direcionou a O.S. ${os.numero} para a empresa ${empresa}`,
+      detalhe: { empresa, empresaAnterior: os.empresa_designada || null },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST direcionar:', e.message); res.status(500).json({ erro: e.message }); }
 });
@@ -875,6 +1100,14 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
        WHERE id = $3 RETURNING *`,
       [equipe, JSON.stringify(historico), id]
     );
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_encaminhada',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: trocando
+        ? `Trocou a equipe da O.S. ${os.numero}: ${os.equipe_designada} → ${equipe}`
+        : `Encaminhou a O.S. ${os.numero} para a ${equipe}`,
+      detalhe: { equipe, equipeAnterior: os.equipe_designada || null, empresa: empresaOS },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST encaminhar:', e.message); res.status(500).json({ erro: e.message }); }
 });
@@ -883,7 +1116,7 @@ app.post('/api/ordens/:id/encaminhar', adminOuGoldman, async (req, res) => {
 app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => {
   try {
     const { id } = req.params;
-    const { foto, gps, dataHora } = req.body;
+    const { foto, gps, dataHora, carimbada } = req.body;
     if (!gps || !String(gps).trim())
       return res.status(400).json({ erro: 'Foto de início precisa de GPS. Ative a localização do dispositivo e permita o acesso.' });
 
@@ -918,6 +1151,8 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
     if (foto) fotosCampo.push({
       tipo: 'inicio', ciclo, foto, gps: gps || null,
       dataHora: normalizarDataHora(dataHora), criadoEm: new Date().toISOString(),
+      // marca as fotos que já saíram do aparelho com o carimbo georreferenciado
+      carimbada: !!carimbada,
     });
 
     const { rows } = await pool.query(
@@ -928,6 +1163,12 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
       [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id,
        JSON.stringify(fotosCampo)]
     );
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_inicio_servico',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: `Registrou o início do serviço da O.S. ${os.numero}`,
+      detalhe: { gps: gps || null, ciclo, empresa: os.empresa_designada, equipe: os.equipe_designada },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-inicio:', e.message); res.status(500).json({ erro: e.message }); }
 });
@@ -936,7 +1177,7 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
 app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
   try {
     const { id } = req.params;
-    const { foto, gps, dataHora } = req.body;
+    const { foto, gps, dataHora, carimbada } = req.body;
     if (!gps || !String(gps).trim())
       return res.status(400).json({ erro: 'Foto de conclusão precisa de GPS. Ative a localização do dispositivo e permita o acesso.' });
 
@@ -967,6 +1208,7 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
     if (foto) fotosCampo.push({
       tipo: 'fim', ciclo, foto, gps: gps || null,
       dataHora: normalizarDataHora(dataHora), criadoEm: new Date().toISOString(),
+      carimbada: !!carimbada,
     });
 
     const { rows } = await pool.query(
@@ -977,6 +1219,12 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
       [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id,
        JSON.stringify(fotosCampo)]
     );
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_fim_servico',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: `Registrou a conclusão do serviço da O.S. ${os.numero} — segue para validação do gestor`,
+      detalhe: { gps: gps || null, ciclo, empresa: os.empresa_designada, equipe: os.equipe_designada },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-fim:', e.message); res.status(500).json({ erro: e.message }); }
 });
@@ -986,7 +1234,7 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
 app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
   try {
     const { id } = req.params;
-    const { tipo, foto, gps, dataHora } = req.body;
+    const { tipo, foto, gps, dataHora, carimbada } = req.body;
     if (tipo !== 'inicio' && tipo !== 'fim')
       return res.status(400).json({ erro: 'Tipo inválido (use inicio ou fim)' });
     if (!foto) return res.status(400).json({ erro: 'Foto não informada' });
@@ -1036,6 +1284,7 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
       tipo, ciclo, foto, gps: gps || null,
       dataHora: normalizarDataHora(dataHora), refeita: true,
       criadoEm: new Date().toISOString(),
+      carimbada: !!carimbada,
     });
 
     const campos = tipo === 'inicio'
@@ -1046,17 +1295,23 @@ app.post('/api/ordens/:id/atualizar-foto', adminOuEquipe, async (req, res) => {
        WHERE id = $5 RETURNING *`,
       [foto, gps, normalizarDataHora(dataHora), JSON.stringify(historico), id, JSON.stringify(fotosCampo)]
     );
+    auditar(req, {
+      categoria: 'ordem', acao: 'os_foto_refeita',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: `Refez a foto de ${tipo === 'inicio' ? 'início' : 'conclusão'} da O.S. ${os.numero}`,
+      detalhe: { tipo, gps: gps || null, ciclo },
+    });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST atualizar-foto:', e.message); res.status(500).json({ erro: e.message }); }
 });
 
-// Validar OS — fluxo em duas etapas:
-//   1) aguardando_gestor      → o gestor da empresa valida o serviço da equipe
-//      aceita  → aguardando_validacao (segue para a SEINFRA)
+// Validar OS:
+//   aguardando_gestor      → o gestor da empresa valida o serviço da equipe
+//      aceita  → FECHADA (a validação do gestor encerra a O.S.)
 //      rejeita → reaberta (volta p/ a empresa escolher outra equipe)
-//   2) aguardando_validacao   → a SEINFRA faz a validação final
-//      aceita  → fechada
-//      rejeita → reaberta
+//   aguardando_validacao   → estado legado (O.S. que já tinham passado pelo
+//      gestor no fluxo antigo de duas etapas). A SEINFRA continua podendo
+//      fechá-las ou rejeitá-las, para nenhuma O.S. ficar presa nesse status.
 app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1078,6 +1333,12 @@ app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
         obs: `OS rejeitada por ${req.usuario.nome} (${perfil}): ${motivoRejeicao}`,
         usuario: req.usuario.id,
       });
+      auditar(req, {
+        categoria: 'ordem', acao: 'os_rejeitada',
+        entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+        descricao: `Rejeitou a O.S. ${os.numero}: ${motivoRejeicao}`,
+        detalhe: { motivo: motivoRejeicao, statusAnterior: os.status, empresa: os.empresa_designada, equipe: os.equipe_designada },
+      });
       // Volta para a empresa escolher a equipe — mantém a empresa, zera a equipe.
       return pool.query(
         `UPDATE ordens_servico SET
@@ -1098,18 +1359,27 @@ app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
 
       if (aceitar) {
         historico.push({
-          status: 'aguardando_validacao',
+          status: 'fechada',
           data: agora,
-          obs: `Serviço validado pelo gestor ${req.usuario.nome} — aguardando validação SEINFRA`,
+          obs: `Serviço validado e O.S. fechada pelo gestor ${req.usuario.nome}`,
           usuario: req.usuario.id,
         });
+        // A validação do gestor encerra a O.S.: fecha na hora, sem segunda etapa.
         const { rows } = await pool.query(
           `UPDATE ordens_servico SET
-             status = 'aguardando_validacao', validado_gestor_por = $1, validado_gestor_em = NOW(),
+             status = 'fechada',
+             validado_gestor_por = $1, validado_gestor_em = NOW(),
+             validado_por = $1, validado_em = NOW(), concluido_em = NOW(),
              historico = $2, atualizado_em = NOW()
            WHERE id = $3 RETURNING *`,
           [req.usuario.id, JSON.stringify(historico), id]
         );
+        auditar(req, {
+          categoria: 'ordem', acao: 'os_validada',
+          entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+          descricao: `Validou e fechou a O.S. ${os.numero}`,
+          detalhe: { etapa: 'gestor', empresa: os.empresa_designada, equipe: os.equipe_designada },
+        });
         return res.json(mapRow(rows[0], true));
       }
       const { rows } = await rejeitar();
@@ -1135,6 +1405,12 @@ app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
            WHERE id = $3 RETURNING *`,
           [req.usuario.id, JSON.stringify(historico), id]
         );
+        auditar(req, {
+          categoria: 'ordem', acao: 'os_validada',
+          entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+          descricao: `Validou e fechou a O.S. ${os.numero}`,
+          detalhe: { etapa: 'seinfra', empresa: os.empresa_designada, equipe: os.equipe_designada },
+        });
         return res.json(mapRow(rows[0], true));
       }
       const { rows } = await rejeitar();
@@ -1144,6 +1420,80 @@ app.post('/api/ordens/:id/validar', validadores, async (req, res) => {
     return res.status(400).json({ erro: 'Esta O.S. não está em fase de validação.' });
   } catch (e) { console.error('POST validar:', e.message); res.status(500).json({ erro: e.message }); }
 });
+
+// ─── Consulta da auditoria ────────────────────────────────────────────────────
+// Admin e SEINFRA acompanham todas as entradas e movimentações do sistema.
+const auditores = autenticar(['admin', 'seinfra']);
+
+app.get('/api/auditoria', auditores, async (req, res) => {
+  try {
+    const { de, ate, categoria, acao, usuario, q } = req.query;
+    const limite = Math.min(500, Math.max(1, parseInt(req.query.limite, 10) || 100));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+    const cond = [], params = [];
+    const add = (sql, valor) => { params.push(valor); cond.push(sql.replace('?', '$' + params.length)); };
+
+    if (de)  add('criado_em >= ?', new Date(de + 'T00:00:00'));
+    if (ate) add('criado_em <= ?', new Date(ate + 'T23:59:59.999'));
+    if (categoria && categoria !== 'todos') add('categoria = ?', categoria);
+    if (acao && acao !== 'todos') add('acao = ?', acao);
+    if (usuario && usuario !== 'todos') add('usuario_id = ?', usuario);
+    if (q && String(q).trim()) {
+      params.push('%' + String(q).trim().toLowerCase() + '%');
+      const i = '$' + params.length;
+      cond.push(`(LOWER(COALESCE(usuario_nome,'')) LIKE ${i}
+               OR LOWER(COALESCE(usuario_email,'')) LIKE ${i}
+               OR LOWER(COALESCE(entidade_ref,'')) LIKE ${i}
+               OR LOWER(COALESCE(descricao,'')) LIKE ${i}
+               OR LOWER(COALESCE(ip,'')) LIKE ${i})`);
+    }
+    const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+
+    const { rows: totalRows } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM auditoria ${where}`, params
+    );
+    const { rows } = await pool.query(
+      `SELECT id, criado_em, usuario_id, usuario_nome, usuario_email, perfil, empresa,
+              categoria, acao, entidade, entidade_id, entidade_ref, descricao, detalhe, ip, user_agent
+         FROM auditoria ${where}
+        ORDER BY criado_em DESC, id DESC
+        LIMIT ${limite} OFFSET ${offset}`,
+      params
+    );
+
+    res.json({ total: totalRows[0].n, limite, offset, itens: rows });
+  } catch (e) {
+    console.error('GET /api/auditoria:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+// Valores disponíveis para os filtros da tela de auditoria + um resumo do período.
+app.get('/api/auditoria/filtros', auditores, async (req, res) => {
+  try {
+    const [acoes, usuarios, resumo] = await Promise.all([
+      pool.query(`SELECT categoria, acao, COUNT(*)::int AS n FROM auditoria
+                   GROUP BY categoria, acao ORDER BY categoria, acao`),
+      pool.query(`SELECT usuario_id AS id, MAX(usuario_nome) AS nome, MAX(usuario_email) AS email,
+                         MAX(perfil) AS perfil, COUNT(*)::int AS n
+                    FROM auditoria WHERE usuario_id IS NOT NULL
+                   GROUP BY usuario_id ORDER BY MAX(usuario_nome)`),
+      pool.query(`SELECT
+                    COUNT(*)::int AS total,
+                    COUNT(*) FILTER (WHERE acao = 'login')::int AS entradas,
+                    COUNT(*) FILTER (WHERE acao = 'login_falhou')::int AS falhas,
+                    COUNT(*) FILTER (WHERE criado_em >= NOW() - INTERVAL '24 hours')::int AS ultimas24h,
+                    MIN(criado_em) AS desde
+                  FROM auditoria`),
+    ]);
+    res.json({ acoes: acoes.rows, usuarios: usuarios.rows, resumo: resumo.rows[0] });
+  } catch (e) {
+    console.error('GET /api/auditoria/filtros:', e.message);
+    res.status(500).json({ erro: e.message });
+  }
+});
+// ─── fim Auditoria ────────────────────────────────────────────────────────────
 
 // ─── Empresas e Equipes cadastradas ────────────────────────────────────────────
 // Deriva as empresas e equipes a partir dos usuários cadastrados, para que os
