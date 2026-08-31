@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auditoria | Sistema de O.S. — Secretaria de Infraestrutura</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --primaria: #c8102e;
+  --primaria-escura: #7f0a1c;
+  --primaria-clara: #fbe9ec;
+  --cinza-bg: #f4f5f7;
+  --cinza-borda: #e0e4e8;
+  --cinza-texto: #5a6473;
+  --cinza-escuro: #1e2532;
+  --verde: #166534;
+  --verde-claro: #dcfce7;
+  --vermelho: #b91c1c;
+  --vermelho-claro: #fee2e2;
+  --azul: #1d4ed8;
+  --azul-claro: #e0e7ff;
+  --roxo: #7c3aed;
+  --roxo-claro: #ede9fe;
+  --laranja: #c2410c;
+  --laranja-claro: #fff7ed;
+  --sombra: 0 2px 12px rgba(0,0,0,0.08);
+  --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--cinza-bg);
+  color: var(--cinza-escuro);
+  min-height: 100vh;
+  padding-bottom: 40px;
+}
+
+header {
+  background: var(--primaria-escura);
+  color: white;
+  padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 20;
+}
+header .voltar {
+  background: rgba(255,255,255,0.15); border: none; color: white;
+  width: 34px; height: 34px; border-radius: 9px;
+  font-size: 18px; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+}
+header .titulo { font-size: 16px; font-weight: 800; }
+header .sub { font-size: 11px; opacity: 0.65; }
+header .header-acoes { margin-left: auto; display: flex; gap: 8px; }
+header .header-acoes button, header .header-acoes a {
+  background: rgba(255,255,255,0.15); color: white; text-decoration: none;
+  border: none; border-radius: 9px; height: 34px; padding: 0 12px;
+  font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+}
+
+.container { max-width: 980px; margin: 0 auto; padding: 18px 16px 0; }
+
+.card {
+  background: white; border-radius: var(--radius);
+  box-shadow: var(--sombra); padding: 20px; margin-bottom: 16px;
+}
+.card-titulo { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+.card-sub { font-size: 12px; color: var(--cinza-texto); margin-bottom: 16px; }
+
+.resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.resumo-item {
+  background: white; border: 1.5px solid var(--cinza-borda);
+  border-radius: 12px; padding: 12px 10px; text-align: center;
+}
+.resumo-num { font-size: 22px; font-weight: 800; line-height: 1.1; }
+.resumo-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--cinza-texto); margin-top: 4px;
+}
+
+.label {
+  display: block; font-size: 11px; font-weight: 700;
+  color: var(--cinza-texto); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 5px;
+}
+.input, select.input {
+  width: 100%; padding: 10px 12px;
+  border: 1.5px solid var(--cinza-borda); border-radius: 10px;
+  font-size: 14px; font-family: inherit; color: var(--cinza-escuro);
+  background: white; -webkit-appearance: none; appearance: none;
+}
+select.input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath fill='%235a6473' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+}
+.input:focus { outline: none; border-color: var(--primaria); }
+
+.filtros { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (min-width: 720px) { .filtros { grid-template-columns: repeat(4, 1fr); } }
+.filtros .largo { grid-column: 1 / -1; }
+
+.btn {
+  padding: 11px 15px; border: none; border-radius: 10px;
+  font-size: 13.5px; font-weight: 700; font-family: inherit; cursor: pointer;
+}
+.btn:hover { filter: brightness(0.93); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn-primary { background: var(--primaria); color: white; }
+.btn-secondary { background: var(--cinza-bg); color: var(--cinza-escuro); border: 1.5px solid var(--cinza-borda); }
+.btn-sm { padding: 7px 11px; font-size: 12px; border-radius: 8px; }
+
+.chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip {
+  border: 1.5px solid var(--cinza-borda); background: white;
+  border-radius: 20px; padding: 6px 13px; font-size: 12.5px;
+  font-weight: 700; cursor: pointer; color: var(--cinza-texto);
+}
+.chip.ativo { background: var(--primaria); border-color: var(--primaria); color: white; }
+
+/* ── Linha do tempo ───────────────────────────────────────────────────────── */
+.evento {
+  display: flex; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--cinza-borda);
+}
+.evento:last-child { border-bottom: none; }
+.evento-icone {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
+  background: var(--cinza-bg);
+}
+.evento-corpo { flex: 1; min-width: 0; }
+.evento-desc { font-size: 13.5px; font-weight: 600; line-height: 1.4; }
+.evento-meta {
+  font-size: 11.5px; color: var(--cinza-texto); margin-top: 4px;
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+}
+.evento-quando { font-size: 11.5px; color: var(--cinza-texto); white-space: nowrap; text-align: right; flex-shrink: 0; }
+.tag {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .4px; padding: 2px 8px; border-radius: 20px;
+}
+.tag-acesso  { background: var(--azul-claro); color: var(--azul); }
+.tag-ordem   { background: var(--laranja-claro); color: var(--laranja); }
+.tag-usuario { background: var(--roxo-claro); color: var(--roxo); }
+.tag-sistema { background: var(--cinza-bg); color: var(--cinza-texto); }
+.tag-falha   { background: var(--vermelho-claro); color: var(--vermelho); }
+
+.detalhe {
+  margin-top: 8px; background: #fbfcfd; border: 1px solid var(--cinza-borda);
+  border-radius: 8px; padding: 9px 11px; font-size: 11.5px;
+  font-family: 'Consolas', 'Courier New', monospace; color: var(--cinza-texto);
+  white-space: pre-wrap; word-break: break-word; display: none;
+}
+.detalhe.aberto { display: block; }
+.link-detalhe {
+  background: none; border: none; padding: 0; font: inherit;
+  font-size: 11.5px; font-weight: 700; color: var(--azul); cursor: pointer;
+}
+
+.vazio, .carregando { text-align: center; padding: 30px 12px; color: var(--cinza-texto); font-size: 14px; }
+
+.negado {
+  max-width: 420px; margin: 60px auto; text-align: center;
+  background: white; border-radius: var(--radius);
+  box-shadow: var(--sombra); padding: 36px 26px;
+}
+.negado .icone { font-size: 44px; margin-bottom: 12px; }
+.negado h2 { font-size: 18px; margin-bottom: 8px; }
+.negado p { font-size: 13px; color: var(--cinza-texto); margin-bottom: 20px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--cinza-escuro); color: white;
+  padding: 12px 20px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; z-index: 999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  max-width: calc(100% - 32px); text-align: center;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="voltar" href="/index.html" title="Voltar">←</a>
+  <div>
+    <div class="titulo">🧾 Auditoria</div>
+    <div class="sub">Entradas e movimentações do sistema</div>
+  </div>
+  <div class="header-acoes">
+    <button onclick="exportarCSV()" title="Exportar o resultado atual em CSV">📥 CSV</button>
+    <button onclick="carregar(true)" title="Atualizar">🔄</button>
+  </div>
+</header>
+
+<div id="conteudo" style="display:none">
+  <div class="container">
+
+    <div class="resumo" id="resumo"></div>
+
+    <div class="card">
+      <div class="card-titulo">🔎 Filtros</div>
+      <div class="card-sub">O registro guarda quem entrou no sistema, quando, de qual endereço IP, e cada movimentação feita nas O.S. e nos usuários.</div>
+
+      <div class="chips" id="chipsCategoria"></div>
+
+      <div class="filtros">
+        <div>
+          <label class="label" for="fDe">De</label>
+          <input class="input" type="date" id="fDe" onchange="carregar(true)">
+        </div>
+        <div>
+          <label class="label" for="fAte">Até</label>
+          <input class="input" type="date" id="fAte" onchange="carregar(true)">
+        </div>
+        <div>
+          <label class="label" for="fAcao">Ação</label>
+          <select class="input" id="fAcao" onchange="carregar(true)">
+            <option value="todos">Todas as ações</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="fUsuario">Usuário</label>
+          <select class="input" id="fUsuario" onchange="carregar(true)">
+            <option value="todos">Todos os usuários</option>
+          </select>
+        </div>
+        <div class="largo">
+          <label class="label" for="fBusca">Busca livre</label>
+          <input class="input" type="search" id="fBusca" placeholder="Nome, e-mail, nº da O.S., IP, descrição..."
+                 oninput="buscaComAtraso(this.value)">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="periodoRapido(0)">Hoje</button>
+        <button class="btn btn-secondary btn-sm" onclick="periodoRapido(7)">Últimos 7 dias</button>
+        <button class="btn btn-secondary btn-sm" onclick="periodoRapido(30)">Últimos 30 dias</button>
+        <button class="btn btn-secondary btn-sm" onclick="limparFiltros()">Limpar filtros</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-titulo">📜 Registro <span id="contador" style="font-weight:600;color:var(--cinza-texto);font-size:13px"></span></div>
+      <div id="lista"><div class="carregando">Carregando...</div></div>
+      <button class="btn btn-secondary" id="btnMais" style="display:none;width:100%;margin-top:14px" onclick="carregarMais()">
+        Carregar mais
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<div id="acessoNegado" style="display:none">
+  <div class="negado">
+    <div class="icone">🔒</div>
+    <h2>Acesso restrito</h2>
+    <p>O log de auditoria é visível apenas para os perfis <strong>Admin</strong> e <strong>SEINFRA</strong>.</p>
+    <a class="btn btn-secondary" href="/index.html" style="text-decoration:none;display:inline-block">Voltar ao sistema</a>
+  </div>
+</div>
+
+<script>
+if (!localStorage.getItem('os_token')) window.location.replace('/login.html');
+
+function getToken() { return localStorage.getItem('os_token') || ''; }
+function fazerLogout() {
+  localStorage.removeItem('os_token');
+  localStorage.removeItem('os_usuario');
+  window.location.replace('/login.html');
+}
+async function apiFetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  headers['Authorization'] = 'Bearer ' + getToken();
+  if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401) { fazerLogout(); throw new Error('sessão expirada'); }
+  return r;
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function toast(msg, dur = 2600) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), dur);
+}
+function fmtDataHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR') + ' ' +
+         d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// Catálogo das ações registradas: rótulo legível + ícone para a linha do tempo.
+const ACOES = {
+  login:                 { icone: '🔑', label: 'Entrada no sistema' },
+  login_falhou:          { icone: '🚫', label: 'Tentativa de entrada recusada', falha: true },
+  logout:                { icone: '🚪', label: 'Saída do sistema' },
+  usuario_criado:        { icone: '➕', label: 'Usuário cadastrado' },
+  usuario_editado:       { icone: '✏️', label: 'Usuário alterado' },
+  usuario_senha_alterada:{ icone: '🔒', label: 'Senha redefinida' },
+  usuario_desativado:    { icone: '⛔', label: 'Acesso desativado' },
+  usuario_reativado:     { icone: '♻️', label: 'Acesso reativado' },
+  usuario_excluido:      { icone: '🗑️', label: 'Usuário excluído', falha: true },
+  os_criada:             { icone: '📋', label: 'O.S. aberta' },
+  os_importadas:         { icone: '📤', label: 'Importação de O.S.' },
+  os_editada:            { icone: '✏️', label: 'O.S. editada' },
+  os_excluida:           { icone: '🗑️', label: 'O.S. excluída', falha: true },
+  os_direcionada:        { icone: '🏢', label: 'O.S. direcionada à empresa' },
+  os_encaminhada:        { icone: '👥', label: 'O.S. encaminhada à equipe' },
+  os_inicio_servico:     { icone: '🔧', label: 'Início do serviço' },
+  os_fim_servico:        { icone: '📸', label: 'Conclusão do serviço' },
+  os_foto_refeita:       { icone: '🔄', label: 'Foto de campo refeita' },
+  os_validada:           { icone: '✅', label: 'O.S. validada e fechada' },
+  os_rejeitada:          { icone: '❌', label: 'O.S. rejeitada', falha: true },
+};
+const CATEGORIAS = [
+  { id: 'todos',   label: 'Tudo' },
+  { id: 'acesso',  label: '🔑 Acessos' },
+  { id: 'ordem',   label: '📋 O.S.' },
+  { id: 'usuario', label: '👥 Usuários' },
+];
+const PERFIL_LABEL = { admin:'Administrador', seinfra:'SEINFRA', assistente:'Assistente', goldman:'Empresa', gestor:'Gestor', equipe:'Equipe' };
+
+const LIMITE = 100;
+let EU = {};
+let ITENS = [];
+let TOTAL = 0;
+let OFFSET = 0;
+let CATEGORIA = 'todos';
+let ABERTOS = new Set();
+let timerBusca = null;
+
+(async function init() {
+  try {
+    const r = await apiFetch('/api/auth/me');
+    const data = await r.json();
+    EU = data.usuario || {};
+  } catch { return; }
+
+  if (!['admin', 'seinfra'].includes(EU.perfil)) {
+    document.getElementById('acessoNegado').style.display = 'block';
+    return;
+  }
+  document.getElementById('conteudo').style.display = 'block';
+  renderChips();
+  await carregarFiltros();
+  await carregar(true);
+})();
+
+function renderChips() {
+  document.getElementById('chipsCategoria').innerHTML = CATEGORIAS.map(c =>
+    `<button class="chip ${CATEGORIA === c.id ? 'ativo' : ''}" onclick="setCategoria('${c.id}')">${esc(c.label)}</button>`
+  ).join('');
+}
+function setCategoria(id) { CATEGORIA = id; renderChips(); carregar(true); }
+
+async function carregarFiltros() {
+  try {
+    const r = await apiFetch('/api/auditoria/filtros');
+    if (!r.ok) return;
+    const { acoes, usuarios, resumo } = await r.json();
+
+    const selAcao = document.getElementById('fAcao');
+    const vistas = [...new Set(acoes.map(a => a.acao))];
+    selAcao.innerHTML = '<option value="todos">Todas as ações</option>' + vistas.map(a => {
+      const n = acoes.filter(x => x.acao === a).reduce((s, x) => s + x.n, 0);
+      const meta = ACOES[a] || { icone: '•', label: a };
+      return `<option value="${esc(a)}">${meta.icone} ${esc(meta.label)} (${n})</option>`;
+    }).join('');
+
+    const selUsuario = document.getElementById('fUsuario');
+    selUsuario.innerHTML = '<option value="todos">Todos os usuários</option>' + usuarios.map(u =>
+      `<option value="${esc(u.id)}">${esc(u.nome || u.email || u.id)} — ${esc(PERFIL_LABEL[u.perfil] || u.perfil || '')} (${u.n})</option>`
+    ).join('');
+
+    document.getElementById('resumo').innerHTML = `
+      <div class="resumo-item"><div class="resumo-num">${resumo.total || 0}</div><div class="resumo-label">Registros</div></div>
+      <div class="resumo-item"><div class="resumo-num">${resumo.entradas || 0}</div><div class="resumo-label">🔑 Entradas</div></div>
+      <div class="resumo-item"><div class="resumo-num" style="color:var(--vermelho)">${resumo.falhas || 0}</div><div class="resumo-label">🚫 Recusadas</div></div>
+      <div class="resumo-item"><div class="resumo-num">${resumo.ultimas24h || 0}</div><div class="resumo-label">Últimas 24 h</div></div>
+      <div class="resumo-item"><div class="resumo-num" style="font-size:14px;padding-top:5px">${resumo.desde ? esc(new Date(resumo.desde).toLocaleDateString('pt-BR')) : '—'}</div><div class="resumo-label">Registrando desde</div></div>`;
+  } catch (e) {
+    console.warn('filtros:', e);
+  }
+}
+
+function paramsAtuais() {
+  const p = new URLSearchParams();
+  const de = document.getElementById('fDe').value;
+  const ate = document.getElementById('fAte').value;
+  const acao = document.getElementById('fAcao').value;
+  const usuario = document.getElementById('fUsuario').value;
+  const q = document.getElementById('fBusca').value.trim();
+  if (de) p.set('de', de);
+  if (ate) p.set('ate', ate);
+  if (CATEGORIA !== 'todos') p.set('categoria', CATEGORIA);
+  if (acao && acao !== 'todos') p.set('acao', acao);
+  if (usuario && usuario !== 'todos') p.set('usuario', usuario);
+  if (q) p.set('q', q);
+  return p;
+}
+
+async function carregar(reiniciar) {
+  if (reiniciar) { OFFSET = 0; ITENS = []; ABERTOS = new Set(); }
+  const el = document.getElementById('lista');
+  if (reiniciar) el.innerHTML = '<div class="carregando">Carregando...</div>';
+  try {
+    const p = paramsAtuais();
+    p.set('limite', LIMITE);
+    p.set('offset', OFFSET);
+    const r = await apiFetch('/api/auditoria?' + p.toString());
+    const data = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="vazio">${esc(data.erro || 'Erro ao carregar')}</div>`; return; }
+    TOTAL = data.total;
+    ITENS = reiniciar ? data.itens : ITENS.concat(data.itens);
+    render();
+  } catch (e) {
+    el.innerHTML = `<div class="vazio">Erro de conexão: ${esc(e.message)}</div>`;
+  }
+}
+
+function carregarMais() {
+  OFFSET += LIMITE;
+  carregar(false);
+}
+
+function buscaComAtraso(v) {
+  clearTimeout(timerBusca);
+  timerBusca = setTimeout(() => carregar(true), 350);
+}
+
+function periodoRapido(dias) {
+  const hoje = new Date();
+  const de = new Date(hoje.getTime() - dias * 86400000);
+  const iso = d => d.toISOString().slice(0, 10);
+  document.getElementById('fDe').value = iso(de);
+  document.getElementById('fAte').value = iso(hoje);
+  carregar(true);
+}
+
+function limparFiltros() {
+  document.getElementById('fDe').value = '';
+  document.getElementById('fAte').value = '';
+  document.getElementById('fAcao').value = 'todos';
+  document.getElementById('fUsuario').value = 'todos';
+  document.getElementById('fBusca').value = '';
+  CATEGORIA = 'todos';
+  renderChips();
+  carregar(true);
+}
+
+function render() {
+  const el = document.getElementById('lista');
+  document.getElementById('contador').textContent =
+    TOTAL ? `(${ITENS.length} de ${TOTAL})` : '';
+  document.getElementById('btnMais').style.display = ITENS.length < TOTAL ? 'block' : 'none';
+
+  if (!ITENS.length) {
+    el.innerHTML = '<div class="vazio">Nenhum registro para os filtros escolhidos.</div>';
+    return;
+  }
+
+  el.innerHTML = ITENS.map(it => {
+    const meta = ACOES[it.acao] || { icone: '•', label: it.acao };
+    const quemNome = it.usuario_nome || it.usuario_email || '—';
+    const quem = it.perfil ? `${quemNome} · ${PERFIL_LABEL[it.perfil] || it.perfil}` : quemNome;
+    const detalhe = it.detalhe && Object.keys(it.detalhe).length ? it.detalhe : null;
+    // nos eventos de acesso a referência é o próprio e-mail de quem agiu —
+    // não repete a informação na linha
+    const ref = it.entidade_ref && it.entidade_ref !== it.usuario_email ? it.entidade_ref : '';
+    const aberto = ABERTOS.has(it.id);
+    return `
+      <div class="evento">
+        <div class="evento-icone" style="${meta.falha ? 'background:var(--vermelho-claro)' : ''}">${meta.icone}</div>
+        <div class="evento-corpo">
+          <div class="evento-desc">${esc(it.descricao || meta.label)}</div>
+          <div class="evento-meta">
+            <span class="tag ${meta.falha ? 'tag-falha' : 'tag-' + esc(it.categoria || 'sistema')}">${esc(meta.label)}</span>
+            <span>👤 ${esc(quem)}</span>
+            ${it.empresa ? `<span>🏢 ${esc(it.empresa)}</span>` : ''}
+            ${ref ? `<span>🔗 ${esc(ref)}</span>` : ''}
+            ${it.ip ? `<span>🌐 ${esc(it.ip)}</span>` : ''}
+            ${detalhe ? `<button class="link-detalhe" onclick="alternarDetalhe('${esc(it.id)}')">${aberto ? 'ocultar detalhes' : 'ver detalhes'}</button>` : ''}
+          </div>
+          ${detalhe ? `<div class="detalhe ${aberto ? 'aberto' : ''}" id="det-${esc(it.id)}">${esc(JSON.stringify(detalhe, null, 2))}</div>` : ''}
+        </div>
+        <div class="evento-quando">${esc(fmtDataHora(it.criado_em))}</div>
+      </div>`;
+  }).join('');
+}
+
+function alternarDetalhe(id) {
+  if (ABERTOS.has(id)) ABERTOS.delete(id); else ABERTOS.add(id);
+  render();
+}
+
+// Exporta o resultado carregado (respeitando os filtros) em CSV, para anexar
+// ao processo de auditoria.
+function exportarCSV() {
+  if (!ITENS.length) { toast('Nada para exportar com os filtros atuais.'); return; }
+  const campo = v => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const linhas = [
+    ['Data/hora', 'Categoria', 'Ação', 'Descrição', 'Usuário', 'E-mail', 'Perfil', 'Empresa', 'Referência', 'IP'].join(';'),
+    ...ITENS.map(it => [
+      fmtDataHora(it.criado_em), it.categoria, (ACOES[it.acao] || {}).label || it.acao,
+      it.descricao, it.usuario_nome, it.usuario_email,
+      PERFIL_LABEL[it.perfil] || it.perfil, it.empresa, it.entidade_ref, it.ip,
+    ].map(campo).join(';')),
+  ];
+  // BOM para o Excel abrir os acentos corretamente
+  const blob = new Blob(['﻿' + linhas.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `auditoria_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+</script>
+</body>
+</html>

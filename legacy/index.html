@@ -518,6 +518,9 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#9aa"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" placeholder="Buscar por nº, local, descrição..." oninput="filtrarOS(this.value)" id="buscaInput">
   </div>
+  <div id="avisoVisaoTotal" style="display:none;margin-bottom:10px;padding:9px 12px;border-radius:var(--radius-sm);background:var(--azul-claro);color:var(--azul);font-size:12px;font-weight:600;line-height:1.4">
+    👁️ Visão completa: você acompanha <strong>todas as O.S.</strong>, de todas as empresas e em todos os status.
+  </div>
   <div id="filtroEmpresaWrap" style="display:none;margin-bottom:8px">
     <select class="form-input" id="filtroEmpresa" onchange="setEmpresa(this.value)" style="width:100%;padding:9px 28px 9px 12px;font-size:13px">
       <option value="todos">🏢 Todas as empresas</option>
@@ -797,6 +800,11 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
       👥 Gerenciar usuários
     </a>
 
+    <a class="btn btn-secondary" href="/auditoria.html" id="linkAuditoria"
+       style="display:none;text-decoration:none;text-align:center;margin-bottom:10px">
+      🧾 Log de acessos e movimentações
+    </a>
+
     <button class="btn btn-danger" onclick="fazerLogout()" style="margin-bottom:20px">
       🚪 Sair do sistema
     </button>
@@ -830,7 +838,18 @@ function getToken() { return localStorage.getItem('os_token') || ''; }
 function getUsuario() {
   try { return JSON.parse(localStorage.getItem('os_usuario') || '{}'); } catch { return {}; }
 }
-function fazerLogout() {
+// registrar=false quando a saída é involuntária (token expirado): aí não há
+// sessão válida para registrar na auditoria.
+function fazerLogout(registrar = true) {
+  const token = getToken();
+  if (registrar && token) {
+    // fetch direto (não apiFetch) para o 401 não reentrar neste mesmo logout
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      keepalive: true,
+    }).catch(() => {});
+  }
   localStorage.removeItem('os_token');
   localStorage.removeItem('os_usuario');
   window.location.replace('/login.html');
@@ -841,7 +860,7 @@ async function apiFetch(url, opts = {}) {
   headers['Authorization'] = 'Bearer ' + getToken();
   if (!headers['Content-Type'] && opts.body) headers['Content-Type'] = 'application/json';
   const r = await fetch(url, { ...opts, headers });
-  if (r.status === 401) { fazerLogout(); return r; }
+  if (r.status === 401) { fazerLogout(false); return r; }
   return r;
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1000,6 +1019,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (u.perfil) document.getElementById('configPerfilBadge').textContent = perfilLabel[u.perfil] || u.perfil;
   // Cadastro de usuários é exclusivo do perfil admin
   if (u.perfil === 'admin') document.getElementById('linkUsuarios').style.display = 'block';
+  // A auditoria é do admin e da SEINFRA (que acompanha a movimentação de tudo)
+  if (['admin', 'seinfra'].includes(u.perfil))
+    document.getElementById('linkAuditoria').style.display = 'block';
 
   carregarOS();
   buscarProximoNumero();
@@ -1030,7 +1052,7 @@ async function abrirOSPelaURL() {
 
 async function iniciarSessao() {
   try {
-    const r = await fetch('/api/auth/me');
+    const r = await apiFetch('/api/auth/me');
     if (!r.ok) return;
     const { usuario } = await r.json();
     localStorage.setItem('os_usuario', JSON.stringify(usuario));
@@ -1039,6 +1061,8 @@ async function iniciarSessao() {
     const orgTxt = usuario.equipe_nome ? ` · ${usuario.equipe_nome}` : (usuario.empresa ? ` · ${usuario.empresa}` : '');
     document.getElementById('usuarioSub').textContent = `${usuario.nome} · ${perfilDisplay}${orgTxt}`;
     document.getElementById('linkUsuarios').style.display = usuario.perfil === 'admin' ? 'block' : 'none';
+    document.getElementById('linkAuditoria').style.display =
+      ['admin', 'seinfra'].includes(usuario.perfil) ? 'block' : 'none';
     // Perfis que NÃO abrem O.S. (equipe, empresa/goldman, gestor) não veem a aba
     // "Nova" nem o botão flutuante (+). Só SEINFRA, assistente e admin abrem O.S.
     const podeAbrirOS = ['admin', 'seinfra', 'assistente'].includes(usuario.perfil);
@@ -1051,6 +1075,12 @@ async function iniciarSessao() {
       const cardImportar = document.getElementById('cardImportarSEN');
       if (cardImportar) cardImportar.style.display = 'none';
     }
+
+    // SEINFRA (e admin) acompanham a movimentação de tudo: o servidor devolve
+    // todas as O.S. e nenhum filtro de perfil é aplicado na tela.
+    const visaoTotal = ['admin', 'seinfra'].includes(usuario.perfil);
+    const avisoVisao = document.getElementById('avisoVisaoTotal');
+    if (avisoVisao) avisoVisao.style.display = visaoTotal ? 'block' : 'none';
 
     // A equipe de campo só trabalha com O.S. direcionada a ela e em execução —
     // o servidor já não envia as demais. Some com os filtros e indicadores que
@@ -1157,6 +1187,202 @@ function comprimirImagem(file, maxWidth = 900) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ── CARIMBO GEORREFERENCIADO NAS FOTOS ────────────────────────────────────────
+// Grava na própria imagem os dados de georreferenciamento (coordenadas,
+// endereço, bairro, data/hora e nº da O.S.). Assim a foto baixada já sai pronta
+// para o relatório fotográfico, sem depender do sistema para saber onde e
+// quando foi tirada.
+const CIDADE_PADRAO = 'João Pessoa - PB, Brasil';
+
+// "-7.115,-34.861" → { lat, lon } (ou null quando não há GPS)
+function partesGPS(gps) {
+  const m = String(gps || '').match(/(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)/);
+  return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
+}
+
+function fmtCoordenada(v, positivo, negativo) {
+  if (v === null || v === undefined || isNaN(v)) return '';
+  return `${Math.abs(v).toFixed(6)}° ${v >= 0 ? positivo : negativo}`;
+}
+
+function carimbarFotoGeo(dataUrl, info) {
+  return new Promise(resolve => {
+    if (!dataUrl) return resolve(dataUrl);
+    const img = new Image();
+    // Se qualquer coisa falhar, devolve a foto original: nunca perder o registro.
+    img.onerror = () => resolve(dataUrl);
+    img.onload = () => {
+      try {
+        const W = img.width, H = img.height;
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const coord = partesGPS(info.gps);
+        const linhas = [];
+        const local = [info.bairro, info.cidade || CIDADE_PADRAO].filter(Boolean).join(' — ');
+        if (info.endereco) linhas.push({ txt: info.endereco, peso: 700, tam: 15 });
+        if (coord) linhas.push({
+          txt: `Lat ${fmtCoordenada(coord.lat, 'N', 'S')}   Long ${fmtCoordenada(coord.lon, 'L', 'O')}`,
+          peso: 600, tam: 14.5, mono: true,
+        });
+        const rodape = [
+          info.dataHora ? fmtDataHora(info.dataHora) : '',
+          info.numero || '',
+          info.rotulo || '',
+        ].filter(Boolean).join('   ·   ');
+        if (rodape) linhas.push({ txt: rodape, peso: 600, tam: 13.5 });
+
+        // Escala tudo pela largura da foto para o carimbo ficar legível
+        // igualmente em uma foto de 900px ou de 4000px.
+        const k = W / 900;
+        const pad = 14 * k;
+        const tituloTam = 20 * k;
+        const alturaLinha = l => l.tam * k * 1.55;
+        const alturaBloco = pad + tituloTam * 1.2
+          + linhas.reduce((soma, l) => soma + alturaLinha(l), 0) + pad;
+        const topo = Math.max(0, H - alturaBloco);
+
+        // Faixa escura translúcida + um degradê curto acima, para a leitura
+        // não depender da cor da foto.
+        const degrade = ctx.createLinearGradient(0, topo - 26 * k, 0, topo);
+        degrade.addColorStop(0, 'rgba(0,0,0,0)');
+        degrade.addColorStop(1, 'rgba(0,0,0,0.55)');
+        ctx.fillStyle = degrade;
+        ctx.fillRect(0, topo - 26 * k, W, 26 * k);
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillRect(0, topo, W, H - topo);
+        ctx.fillStyle = '#c8102e';
+        ctx.fillRect(0, topo, 6 * k, H - topo);
+
+        ctx.textBaseline = 'top';
+        ctx.shadowColor = 'rgba(0,0,0,0.75)';
+        ctx.shadowBlur = 3 * k;
+        let y = topo + pad;
+        const x = pad + 6 * k;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `800 ${tituloTam}px "Segoe UI", system-ui, sans-serif`;
+        ctx.fillText(local, x, y);
+        y += tituloTam * 1.2;
+
+        for (const l of linhas) {
+          ctx.fillStyle = l.mono ? '#ffd7dd' : 'rgba(255,255,255,0.94)';
+          ctx.font = `${l.peso} ${l.tam * k}px ${l.mono ? '"Consolas", "Courier New", monospace' : '"Segoe UI", system-ui, sans-serif'}`;
+          ctx.fillText(l.txt, x, y);
+          y += alturaLinha(l);
+        }
+        ctx.shadowBlur = 0;
+
+        resolve(canvas.toDataURL('image/jpeg', 0.86));
+      } catch (e) {
+        console.warn('carimbo geo:', e);
+        resolve(dataUrl);
+      }
+    };
+    img.src = dataUrl;
+  });
+}
+
+// Dados de georreferenciamento da O.S. usados no carimbo da foto.
+function dadosCarimbo(os, tipo, gps, dataHora) {
+  return {
+    numero: os ? os.numero : '',
+    // só o logradouro: o bairro já aparece na linha do título do carimbo
+    endereco: (os && os.endereco) || '',
+    bairro: (os && os.bairro) || '',
+    cidade: CIDADE_PADRAO,
+    gps, dataHora,
+    rotulo: tipo === 'inicio' ? 'INÍCIO DO SERVIÇO' : 'CONCLUSÃO DO SERVIÇO',
+  };
+}
+
+// ── DOWNLOAD DE FOTOS (relatório fotográfico do gestor) ───────────────────────
+function baixarDataUrl(dataUrl, nomeArquivo) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = nomeArquivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+const nomeArquivoFoto = (numero, sufixo) =>
+  `${String(numero || 'OS').replace(/[^\w-]/g, '_')}_${sufixo}.jpg`;
+
+// Baixa uma foto já com o carimbo. Fotos antigas (anteriores ao carimbo
+// automático) recebem o carimbo na hora do download.
+async function baixarFoto(dataUrl, numero, sufixo, info, jaCarimbada) {
+  if (!dataUrl) return;
+  const final = jaCarimbada ? dataUrl : await carimbarFotoGeo(dataUrl, info || {});
+  baixarDataUrl(final, nomeArquivoFoto(numero, sufixo));
+}
+
+// Baixa a foto de início/conclusão atual da O.S. aberta no modal.
+async function baixarFotoDaOS(id, tipo) {
+  const os = (S.osAberta && S.osAberta.id === id) ? S.osAberta : await carregarOSCompleta(id);
+  if (!os) return;
+  const src = tipo === 'inicio' ? os.fotoInicio : os.fotoFim;
+  if (!src) { toast('Esta O.S. não tem essa foto.'); return; }
+  const gps = tipo === 'inicio' ? os.gpsInicio : os.gpsFim;
+  const dataHora = tipo === 'inicio' ? os.dataInicioServico : os.dataFimServico;
+  const arquivada = (os.fotosCampo || []).find(f => f.foto === src);
+  await baixarFoto(
+    src, os.numero, tipo === 'inicio' ? 'inicio' : 'conclusao',
+    dadosCarimbo(os, tipo, gps, dataHora),
+    !!(arquivada && arquivada.carimbada)
+  );
+}
+
+// Baixa uma foto específica do arquivo de fotos de campo (execuções anteriores).
+async function baixarFotoArquivo(id, indice) {
+  const os = (S.osAberta && S.osAberta.id === id) ? S.osAberta : await carregarOSCompleta(id);
+  if (!os) return;
+  const f = (os.fotosCampo || [])[indice];
+  if (!f) { toast('Foto não encontrada.'); return; }
+  await baixarFoto(
+    f.foto, os.numero,
+    `${f.tipo === 'inicio' ? 'inicio' : 'conclusao'}_exec${f.ciclo || 1}`,
+    dadosCarimbo(os, f.tipo, f.gps, f.dataHora),
+    !!f.carimbada
+  );
+}
+
+// Baixa todas as fotos de campo da O.S., uma a uma, para o relatório
+// fotográfico. Os downloads são espaçados porque o navegador ignora vários
+// disparados no mesmo instante.
+async function baixarFotosRelatorio(id) {
+  const os = (S.osAberta && S.osAberta.id === id) ? S.osAberta : await carregarOSCompleta(id);
+  if (!os) return;
+  const fotos = fotosCampoUnificadas(os);
+  if (!fotos.length) { toast('Esta O.S. ainda não tem fotos de campo.'); return; }
+  toast(`⏬ Baixando ${fotos.length} foto${fotos.length > 1 ? 's' : ''} com os dados georreferenciados...`, 3200);
+  let i = 0;
+  for (const f of fotos) {
+    const sufixo = `${f.tipo === 'inicio' ? 'inicio' : 'conclusao'}_exec${f.ciclo || 1}_${++i}`;
+    await baixarFoto(
+      f.foto, os.numero, sufixo,
+      dadosCarimbo(os, f.tipo, f.gps, f.dataHora),
+      !!f.carimbada
+    );
+    await new Promise(r => setTimeout(r, 450));
+  }
+}
+
+// União do arquivo `fotosCampo` com as colunas foto_inicio/foto_fim — nenhuma
+// foto de campo fica de fora (O.S. antigas não têm o arquivo).
+function fotosCampoUnificadas(os) {
+  const lista = [...(os.fotosCampo || [])];
+  const jaTem = src => lista.some(f => f.foto === src);
+  const ultimoCiclo = lista.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
+  if (os.fotoInicio && !jaTem(os.fotoInicio))
+    lista.push({ tipo:'inicio', ciclo:ultimoCiclo, foto:os.fotoInicio, gps:os.gpsInicio, dataHora:os.dataInicioServico });
+  if (os.fotoFim && !jaTem(os.fotoFim))
+    lista.push({ tipo:'fim', ciclo:ultimoCiclo, foto:os.fotoFim, gps:os.gpsFim, dataHora:os.dataFimServico });
+  return lista;
 }
 
 const MAX_FOTOS_ABERTURA = 10;
@@ -1692,27 +1918,28 @@ async function abrirDetalhes(id) {
           </div>`;
       }
 
-      // Etapa 1 — validação do GESTOR da empresa (após a equipe concluir)
+      // Validação do GESTOR da empresa (após a equipe concluir) — encerra a O.S.
       const gestorDaEmpresa = usuario.perfil === 'admin' ||
         (usuario.perfil === 'gestor' && (!usuario.empresa || !os.empresaDesignada || usuario.empresa === os.empresaDesignada));
       if ((usuario.perfil === 'gestor' || usuario.perfil === 'admin') && os.status === 'aguardando_gestor' && gestorDaEmpresa) {
         acoesHtml += `
           <div class="form-card" style="border:2px solid #8a5fd0;background:rgba(138,95,208,0.06)">
             <div class="form-card-title" style="color:#8a5fd0">✅ Validação do Gestor</div>
-            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Revise as fotos e o serviço executado pela equipe. Ao aprovar, a O.S. segue para a validação final da SEINFRA.</p>
+            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Revise as fotos e o serviço executado pela equipe. <strong>Ao aprovar, a O.S. é fechada.</strong> Se algo estiver errado, rejeite para a equipe refazer.</p>
             <div style="display:flex;gap:10px">
-              <button class="btn btn-primary" style="flex:1;background:#8a5fd0;border-color:#7a4fc0" onclick="validarOS('${os.id}',true)">✅ Aprovar Serviço</button>
+              <button class="btn btn-primary" style="flex:1;background:#8a5fd0;border-color:#7a4fc0" onclick="validarOS('${os.id}',true)">✅ Validar e Fechar</button>
               <button class="btn btn-danger" style="flex:1" onclick="validarOS('${os.id}',false)">❌ Rejeitar</button>
             </div>
           </div>`;
       }
 
-      // Etapa 2 — validação final da SEINFRA
+      // O.S. que ficaram em "aguardando validação" no fluxo antigo de duas
+      // etapas — a SEINFRA continua podendo fechá-las para não sobrar pendência.
       if ((usuario.perfil === 'seinfra' || usuario.perfil === 'admin') && os.status === 'aguardando_validacao') {
         acoesHtml += `
           <div class="form-card" style="border:2px solid var(--verde);background:rgba(26,110,69,0.06)">
             <div class="form-card-title" style="color:var(--verde)">✅ Validação SEINFRA</div>
-            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Serviço já aprovado pelo gestor da empresa. Faça a validação final para fechar a O.S.</p>
+            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">O.S. do fluxo antigo, já aprovada pelo gestor da empresa. Faça a validação final para fechá-la.</p>
             <div style="display:flex;gap:10px">
               <button class="btn btn-primary" style="flex:1;background:var(--verde);border-color:var(--verde-escuro)" onclick="validarOS('${os.id}',true)">✅ Validar e Fechar</button>
               <button class="btn btn-danger" style="flex:1" onclick="validarOS('${os.id}',false)">❌ Rejeitar</button>
@@ -1728,6 +1955,14 @@ async function abrirDetalhes(id) {
       <div id="cardInfo">${renderInfoCard(os)}</div>
       ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
       <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
+      ${fotosCampoUnificadas(os).length ? `
+      <button class="btn btn-secondary" style="margin-top:8px" onclick="baixarFotosRelatorio('${os.id}')">
+        📸 Baixar fotos p/ relatório fotográfico
+      </button>
+      <p style="font-size:11px;color:var(--cinza-texto);margin-top:6px;line-height:1.4">
+        As fotos são baixadas com os dados georreferenciados gravados na imagem
+        (endereço, bairro, coordenadas, data/hora e nº da O.S.).
+      </p>` : ''}
     </div>
 
     <!-- FOTO DE INÍCIO DO SERVIÇO -->
@@ -1742,6 +1977,7 @@ async function abrirDetalhes(id) {
         ${os.dataInicioServico ? `<span>📅 ${fmtDataHora(os.dataInicioServico)}</span>` : ''}
       </div>
       ${os.gpsInicio ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsInicio)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+      <button class="btn btn-secondary" style="margin-top:8px;font-size:12px;width:100%" onclick="baixarFotoDaOS('${os.id}','inicio')">⬇️ Baixar foto georreferenciada</button>
       ${(() => {
         const u = getUsuario();
         const dono = u.perfil === 'admin' || (u.perfil === 'equipe' && os.equipeDesignada === u.equipe_nome && os.empresaDesignada === u.empresa);
@@ -1762,6 +1998,7 @@ async function abrirDetalhes(id) {
         ${os.dataFimServico ? `<span>📅 ${fmtDataHora(os.dataFimServico)}</span>` : ''}
       </div>
       ${os.gpsFim ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(os.gpsFim)}" target="_blank" class="btn btn-secondary" style="margin-top:8px;font-size:12px;text-decoration:none">🗺️ Ver no mapa (GPS da foto)</a>` : ''}
+      <button class="btn btn-secondary" style="margin-top:8px;font-size:12px;width:100%" onclick="baixarFotoDaOS('${os.id}','fim')">⬇️ Baixar foto georreferenciada</button>
       ${(() => {
         const u = getUsuario();
         const dono = u.perfil === 'admin' || (u.perfil === 'equipe' && os.equipeDesignada === u.equipe_nome && os.empresaDesignada === u.empresa);
@@ -1782,14 +2019,16 @@ async function abrirDetalhes(id) {
       <div class="form-card" style="border-left:4px solid var(--vermelho)">
         <div class="form-card-title">🗂️ Histórico de fotos de campo <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${fc.length} · ${maxC} execuções)</span></div>
         <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Todas as fotos tiradas em campo, incluindo as das execuções rejeitadas. Vão para a impressão da O.S.</p>
-        <div class="fotos-grid" style="margin-top:0">${fc.map(f => {
+        <div class="fotos-grid" style="margin-top:0">${fc.map((f, i) => {
           const rej = (f.ciclo || 1) < maxC;
           const base = f.tipo === 'inicio' ? 'Início' : 'Conclusão';
           return `<div class="foto-thumb">
             <img src="${f.foto}" onclick="verFoto('${f.foto}')" alt="${base}">
             <div style="font-size:9px;text-align:center;padding:3px 2px;color:${rej ? 'var(--vermelho)' : 'var(--cinza-texto)'};background:${rej ? 'var(--vermelho-claro)' : 'var(--cinza-bg)'}">${base} · Exec ${f.ciclo || 1}${rej ? ' (rej.)' : ''}</div>
+            <button class="btn btn-secondary" style="font-size:10px;padding:4px 0;width:100%;border-radius:0" onclick="baixarFotoArquivo('${os.id}',${i})">⬇️ Baixar</button>
           </div>`;
         }).join('')}</div>
+        <button class="btn btn-secondary" style="margin-top:10px;font-size:12px" onclick="baixarFotosRelatorio('${os.id}')">📸 Baixar todas com os dados georreferenciados</button>
       </div>`;
     })()}
 
@@ -2040,16 +2279,7 @@ function imprimirOS() {
   // as das execuções rejeitadas. É a UNIÃO do arquivo `fotosCampo` com as colunas
   // foto_inicio/foto_fim, para nenhuma foto ficar de fora (O.S. antigas, anteriores
   // ao arquivo, ou foto ainda não arquivada).
-  const fotosCampo = (() => {
-    const lista = [...(os.fotosCampo || [])];
-    const jaTem = src => lista.some(f => f.foto === src);
-    const ultimoCiclo = lista.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
-    if (os.fotoInicio && !jaTem(os.fotoInicio))
-      lista.push({ tipo:'inicio', ciclo:ultimoCiclo, foto:os.fotoInicio, gps:os.gpsInicio, dataHora:os.dataInicioServico });
-    if (os.fotoFim && !jaTem(os.fotoFim))
-      lista.push({ tipo:'fim', ciclo:ultimoCiclo, foto:os.fotoFim, gps:os.gpsFim, dataHora:os.dataFimServico });
-    return lista;
-  })();
+  const fotosCampo = fotosCampoUnificadas(os);
   const maxCiclo = fotosCampo.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
   const fotoCampoHtml = fotosCampo.map(f => {
     const base = f.tipo === 'inicio' ? 'Foto de início' : 'Foto de conclusão';
@@ -2995,12 +3225,12 @@ async function registrarFotoServico(id, tipo) {
         return;
       }
       const base64 = await comprimirImagem(file, 900);
+      const dataHora = exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString();
+      // Grava os dados georreferenciados na própria imagem antes de enviar.
+      const osAtual = (S.osAberta && S.osAberta.id === id) ? S.osAberta : S.ordens.find(o => o.id === id);
+      const foto = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
       const endpoint = tipo === 'inicio' ? 'registrar-inicio' : 'registrar-fim';
-      const body = {
-        foto: base64,
-        gps,
-        dataHora: exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString()
-      };
+      const body = { foto, gps, dataHora, carimbada: true };
       const r = await apiFetch(`/api/ordens/${id}/${endpoint}`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -3056,12 +3286,12 @@ async function trocarFotoServico(id, tipo) {
       }
       if (!confirm(`Substituir a foto de ${rotulo} pela nova?`)) { statusEl.innerHTML = oldHtml; return; }
       const base64 = await comprimirImagem(file, 900);
+      const dataHora = exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString();
+      const osAtual = (S.osAberta && S.osAberta.id === id) ? S.osAberta : S.ordens.find(o => o.id === id);
+      const foto = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
       const r = await apiFetch(`/api/ordens/${id}/atualizar-foto`, {
         method: 'POST',
-        body: JSON.stringify({
-          tipo, foto: base64, gps,
-          dataHora: exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString(),
-        }),
+        body: JSON.stringify({ tipo, foto, gps, dataHora, carimbada: true }),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
       toast(`Foto de ${rotulo} atualizada!`);
