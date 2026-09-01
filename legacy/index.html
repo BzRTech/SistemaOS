@@ -1170,24 +1170,55 @@ function salvarLocal() {
 }
 
 // ── FOTO COMPRESSÃO ───────────────────────────────────────────────────────────
+// Prazo máximo para ler e reduzir a foto. Sem ele, uma leitura ou uma
+// decodificação que não devolve resposta (acontece no Safari com fotos grandes)
+// deixava a tela do campo presa em "Processando foto..." sem nenhuma saída.
+const PRAZO_COMPRESSAO_MS = 20000;
+
+// Devolve o data URI da foto reduzida, ou null quando não foi possível gerá-la.
+// Nunca fica pendurada e nunca rejeita — quem chama trata o null.
 function comprimirImagem(file, maxWidth = 900) {
   return new Promise(resolve => {
+    let pronto = false;
+    const terminar = (valor, motivo) => {
+      if (pronto) return;
+      pronto = true;
+      if (motivo) console.warn('comprimirImagem:', motivo);
+      resolve(valor);
+    };
+    const prazo = setTimeout(() => terminar(null, 'tempo esgotado ao processar a foto'), PRAZO_COMPRESSAO_MS);
+    const falhou = motivo => { clearTimeout(prazo); terminar(null, motivo); };
+
     const reader = new FileReader();
+    reader.onerror = () => falhou('não foi possível ler o arquivo');
     reader.onload = e => {
       const img = new Image();
+      img.onerror = () => falhou('não foi possível decodificar a foto');
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let w = img.width, h = img.height;
-        if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.78));
+        try {
+          const canvas = document.createElement('canvas');
+          let w = img.width, h = img.height;
+          if (!w || !h) return falhou('foto sem dimensões');
+          if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const saida = canvas.toDataURL('image/jpeg', 0.78);
+          // toDataURL devolve "data:," quando falha (memória, canvas grande)
+          if (!/^data:image\/(jpeg|png);base64,/.test(saida) || saida.length < 1024)
+            return falhou('exportação da foto reduzida falhou');
+          clearTimeout(prazo);
+          terminar(saida);
+        } catch (err) {
+          falhou(err && err.message);
+        }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   });
 }
+
+const ERRO_FOTO = 'Não foi possível processar esta foto. Tente tirar de novo ou escolher outra imagem.';
 
 // ── CARIMBO GEORREFERENCIADO NAS FOTOS ────────────────────────────────────────
 // Grava na própria imagem os dados de georreferenciamento (coordenadas,
@@ -1207,13 +1238,31 @@ function fmtCoordenada(v, positivo, negativo) {
   return `${Math.abs(v).toFixed(6)}° ${v >= 0 ? positivo : negativo}`;
 }
 
+// O carimbo é um enfeite útil, não o registro em si — o registro é a foto com
+// o GPS. Por isso ele NUNCA pode travar nem substituir a foto por lixo: tem
+// prazo máximo e, em qualquer falha, devolve a foto original marcando
+// `carimbada: false`, para o download carimbá-la depois.
+const PRAZO_CARIMBO_MS = 8000;
+
 function carimbarFotoGeo(dataUrl, info) {
   return new Promise(resolve => {
-    if (!dataUrl) return resolve(dataUrl);
+    if (!dataUrl) return resolve({ foto: dataUrl, carimbada: false });
+    let pronto = false;
+    const semCarimbo = (motivo) => {
+      if (pronto) return;
+      pronto = true;
+      if (motivo) console.warn('carimbo geo:', motivo);
+      resolve({ foto: dataUrl, carimbada: false });
+    };
+    // Em alguns navegadores (Safari sob pressão de memória) a decodificação de
+    // uma imagem grande não dispara onload NEM onerror — sem este prazo a tela
+    // do campo ficava presa em "Processando foto..." para sempre.
+    const prazo = setTimeout(() => semCarimbo('tempo esgotado ao decodificar a foto'), PRAZO_CARIMBO_MS);
     const img = new Image();
-    // Se qualquer coisa falhar, devolve a foto original: nunca perder o registro.
-    img.onerror = () => resolve(dataUrl);
+    img.onerror = () => { clearTimeout(prazo); semCarimbo('falha ao decodificar a foto'); };
     img.onload = () => {
+      clearTimeout(prazo);
+      if (pronto) return;
       try {
         const W = img.width, H = img.height;
         const canvas = document.createElement('canvas');
@@ -1277,10 +1326,16 @@ function carimbarFotoGeo(dataUrl, info) {
         }
         ctx.shadowBlur = 0;
 
-        resolve(canvas.toDataURL('image/jpeg', 0.86));
+        // toDataURL devolve "data:," quando a exportação falha (memória, canvas
+        // grande demais). Enviar isso apagaria a foto — só aceita um resultado
+        // que de fato pareça uma imagem.
+        const saida = canvas.toDataURL('image/jpeg', 0.86);
+        if (!/^data:image\/(jpeg|png);base64,/.test(saida) || saida.length < 1024)
+          return semCarimbo('exportação da imagem carimbada falhou');
+        pronto = true;
+        resolve({ foto: saida, carimbada: true });
       } catch (e) {
-        console.warn('carimbo geo:', e);
-        resolve(dataUrl);
+        semCarimbo(e && e.message);
       }
     };
     img.src = dataUrl;
@@ -1317,7 +1372,7 @@ const nomeArquivoFoto = (numero, sufixo) =>
 // automático) recebem o carimbo na hora do download.
 async function baixarFoto(dataUrl, numero, sufixo, info, jaCarimbada) {
   if (!dataUrl) return;
-  const final = jaCarimbada ? dataUrl : await carimbarFotoGeo(dataUrl, info || {});
+  const final = jaCarimbada ? dataUrl : (await carimbarFotoGeo(dataUrl, info || {})).foto;
   baixarDataUrl(final, nomeArquivoFoto(numero, sufixo));
 }
 
@@ -1397,11 +1452,14 @@ async function selecionarFoto(input, tipo) {
         toast(`⚠️ Máximo de ${MAX_FOTOS_ABERTURA} fotos de abertura.`, 3000);
         break;
       }
-      S.fotosAbertura.push(await comprimirImagem(f));
+      const b64 = await comprimirImagem(f);
+      if (!b64) { toast(ERRO_FOTO, 3600); continue; }
+      S.fotosAbertura.push(b64);
     }
     renderGridFotos('previewFotoAbertura', S.fotosAbertura, 'removerFotoNova', 'verFotoNova');
   } else if (tipo === 'conclusao-modal') {
     const b64 = await comprimirImagem(files[0]);
+    if (!b64) { toast(ERRO_FOTO, 3600); input.value = ''; return; }
     S.fotoConclusaoModal = b64;
     renderPreviewFoto('previewFotoConclusaoModal', b64, () => {
       S.fotoConclusaoModal = null;
@@ -2192,6 +2250,7 @@ async function adicionarFotoNaOS(input, tipo) {
   if (tipo === 'conclusao') {
     const b64 = await comprimirImagem(files[0]);
     input.value = '';
+    if (!b64) { toast(ERRO_FOTO, 3600); return; }
     S.fotoConclusaoModal = b64;
     renderPreviewFoto('previewFotoConclusaoModal', b64, () => {
       S.fotoConclusaoModal = null;
@@ -2208,9 +2267,12 @@ async function adicionarFotoNaOS(input, tipo) {
       toast(`⚠️ Máximo de ${MAX_FOTOS_ABERTURA} fotos de abertura.`, 3000);
       break;
     }
-    fotos.push(await comprimirImagem(f));
+    const b64 = await comprimirImagem(f);
+    if (!b64) { toast(ERRO_FOTO, 3600); continue; }
+    fotos.push(b64);
   }
   input.value = '';
+  if (fotos.length === (os.fotosAbertura || []).length) return;
   await atualizarOS(os.id, {
     status: os.status,
     responsavel: os.responsavel||'',
@@ -3240,12 +3302,15 @@ async function registrarFotoServico(id, tipo) {
         return;
       }
       const base64 = await comprimirImagem(file, 900);
+      if (!base64) { statusEl.innerHTML = oldHtml; toast(ERRO_FOTO, 3600); return; }
       const dataHora = exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString();
       // Grava os dados georreferenciados na própria imagem antes de enviar.
       const osAtual = (S.osAberta && S.osAberta.id === id) ? S.osAberta : S.ordens.find(o => o.id === id);
-      const foto = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
+      const { foto, carimbada } = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
       const endpoint = tipo === 'inicio' ? 'registrar-inicio' : 'registrar-fim';
-      const body = { foto, gps, dataHora, carimbada: true };
+      // `carimbada` precisa refletir a realidade: se o carimbo falhou, a foto
+      // sobe sem ele e é carimbada na hora do download.
+      const body = { foto, gps, dataHora, carimbada };
       const r = await apiFetch(`/api/ordens/${id}/${endpoint}`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -3301,12 +3366,13 @@ async function trocarFotoServico(id, tipo) {
       }
       if (!confirm(`Substituir a foto de ${rotulo} pela nova?`)) { statusEl.innerHTML = oldHtml; return; }
       const base64 = await comprimirImagem(file, 900);
+      if (!base64) { statusEl.innerHTML = oldHtml; toast(ERRO_FOTO, 3600); return; }
       const dataHora = exif.dateTime ? converterExifDate(exif.dateTime) : new Date().toISOString();
       const osAtual = (S.osAberta && S.osAberta.id === id) ? S.osAberta : S.ordens.find(o => o.id === id);
-      const foto = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
+      const { foto, carimbada } = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
       const r = await apiFetch(`/api/ordens/${id}/atualizar-foto`, {
         method: 'POST',
-        body: JSON.stringify({ tipo, foto, gps, dataHora, carimbada: true }),
+        body: JSON.stringify({ tipo, foto, gps, dataHora, carimbada }),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
       toast(`Foto de ${rotulo} atualizada!`);
