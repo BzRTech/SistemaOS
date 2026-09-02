@@ -1012,7 +1012,11 @@ app.delete('/api/ordens/:id', criadorOS, async (req, res) => {
 
 // ─── Workflow Endpoints ───────────────────────────────────────────────────────
 
-// Direcionar OS para uma empresa (seinfra, assistente, admin) → status = encaminhada
+// Direcionar (ou trocar) a empresa da O.S. (seinfra, assistente, admin) → status = encaminhada.
+// A troca é permitida enquanto o serviço não começou; depois disso a O.S. já tem
+// fotos e registros de campo da equipe daquela empresa.
+const STATUS_TROCA_EMPRESA = ['aberta', 'encaminhada', 'direcionada', 'reaberta'];
+
 app.post('/api/ordens/:id/direcionar', criadorOS, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1030,26 +1034,48 @@ app.post('/api/ordens/:id/direcionar', criadorOS, async (req, res) => {
     if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
 
     const os = atual[0];
+    const empresaAnterior = os.empresa_designada || null;
+    const empresaNova = String(empresa).trim();
+
+    if (!STATUS_TROCA_EMPRESA.includes(os.status))
+      return res.status(400).json({
+        erro: 'A empresa só pode ser trocada antes do início do serviço. Rejeite a O.S. para reabri-la.',
+      });
+    if (empresaAnterior === empresaNova)
+      return res.status(400).json({ erro: `A O.S. já está direcionada para ${empresaNova}.` });
+
+    const trocando = !!empresaAnterior;
     const historico = parseHistorico(os.historico);
     historico.push({
       status: 'encaminhada',
       data: new Date().toISOString(),
-      obs: `Direcionada para empresa ${empresa} por ${req.usuario.nome}`,
+      obs: trocando
+        ? `Empresa alterada de ${empresaAnterior} para ${empresaNova} por ${req.usuario.nome}` +
+          (os.equipe_designada ? ` — a ${os.equipe_designada} foi desvinculada` : '')
+        : `Direcionada para empresa ${empresaNova} por ${req.usuario.nome}`,
       usuario: req.usuario.id,
     });
 
+    // A equipe pertence à empresa anterior: ao trocar de empresa ela é
+    // desvinculada, para a nova empresa escolher uma equipe própria.
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
-         empresa_designada = $1, status = 'encaminhada',
+         empresa_designada = $1, equipe_designada = NULL, status = 'encaminhada',
          historico = $2, atualizado_em = NOW()
        WHERE id = $3 RETURNING *`,
-      [empresa, JSON.stringify(historico), id]
+      [empresaNova, JSON.stringify(historico), id]
     );
     auditar(req, {
       categoria: 'ordem', acao: 'os_direcionada',
       entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
-      descricao: `Direcionou a O.S. ${os.numero} para a empresa ${empresa}`,
-      detalhe: { empresa, empresaAnterior: os.empresa_designada || null },
+      descricao: trocando
+        ? `Trocou a empresa da O.S. ${os.numero}: ${empresaAnterior} → ${empresaNova}`
+        : `Direcionou a O.S. ${os.numero} para a empresa ${empresaNova}`,
+      detalhe: {
+        empresa: empresaNova, empresaAnterior,
+        equipeDesvinculada: trocando ? (os.equipe_designada || null) : null,
+        statusAnterior: os.status,
+      },
     });
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST direcionar:', e.message); res.status(500).json({ erro: e.message }); }
