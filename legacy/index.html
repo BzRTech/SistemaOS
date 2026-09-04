@@ -1597,7 +1597,12 @@ function renderLista() {
       <div class="os-fotos-row">
         <div class="foto-pill ${os.temFotoAbertura?'tem':'nao'}">📷 Abertura ${os.temFotoAbertura?'✓':'–'}</div>
         <div class="foto-pill ${os.temFotoConclusao?'tem':'nao'}">📸 Conclusão ${os.temFotoConclusao?'✓':'–'}</div>
-        ${urlMapa(os)?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
+        ${(() => {
+          const ponto = pontoMapa(os);
+          if (!ponto) return '';
+          const gps = ponto.tipo === 'gps';
+          return `<div class="foto-pill tem" style="margin-left:auto;background:${gps ? 'rgba(45,158,101,.14)' : 'var(--azul-claro)'};color:${gps ? 'var(--verde-medio,#2d9e65)' : 'var(--azul)'}" onclick="abrirMapa('${os.id}', event)">${gps ? '📍 GPS' : '🗺️ Mapa'}</div>`;
+        })()}
       </div>
     </div>`).join('');
 }
@@ -1674,18 +1679,54 @@ function popularFiltroBairro() {
 }
 
 // ── MAPA ──────────────────────────────────────────────────────────────────────
-function urlMapa(os) {
-  // usa coordenadas se a referência tiver (import com lat/long); senão, endereço
+// Qual ponto o mapa deve abrir:
+//   • antes do início da execução → o endereço preenchido na abertura da O.S.,
+//     que é a única informação de local que existe até ali;
+//   • a partir do início da execução → o GPS coletado em campo junto com a
+//     foto, que marca o ponto exato onde o serviço foi executado.
+function pontoMapa(os) {
+  if (!os) return null;
+
+  // O GPS de campo só existe depois que a equipe registra o início.
+  const coord = partesGPS(os.gpsInicio || os.gpsFim);
+  if (coord) return {
+    query: `${coord.lat},${coord.lon}`,
+    tipo: 'gps',
+    rotulo: '📍 Ver ponto exato da execução',
+    detalhe: `GPS coletado em campo${os.gpsInicio ? '' : ' na conclusão'}: ${coord.lat.toFixed(6)}, ${coord.lon.toFixed(6)}`,
+  };
+
+  const endereco = [os.endereco, os.bairro].filter(Boolean).join(', ').trim();
+  if (endereco) return {
+    query: endereco,
+    tipo: 'endereco',
+    rotulo: '🗺️ Ver localização no mapa',
+    detalhe: `Endereço informado na abertura: ${endereco}`,
+  };
+
+  // O.S. importada por CSV sem endereço: sobra a coordenada guardada na referência.
   const m = (os.referencia||'').match(/Coordenadas:\s*(-?\d+(?:\.\d+)?)[,;]\s*(-?\d+(?:\.\d+)?)/i);
-  const q = m ? `${m[1]},${m[2]}` : [os.endereco, os.bairro].filter(Boolean).join(', ');
-  return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
+  if (m) return {
+    query: `${m[1]},${m[2]}`,
+    tipo: 'coordenada',
+    rotulo: '🗺️ Ver localização no mapa',
+    detalhe: `Coordenada da importação: ${m[1]}, ${m[2]}`,
+  };
+
+  return null;
 }
+
+function urlMapa(os) {
+  const p = pontoMapa(os);
+  return p ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.query) : null;
+}
+
 function abrirMapa(id, ev) {
   if (ev) ev.stopPropagation();
   const os = S.ordens.find(o => o.id === id) || S.osAberta;
   const u = os && urlMapa(os);
   if (u) window.open(u, '_blank');
-  else toast('⚠️ O.S. sem endereço para localizar.');
+  else toast('⚠️ O.S. sem endereço nem GPS para localizar.');
 }
 
 // ── STATS ─────────────────────────────────────────────────────────────────────
@@ -2020,7 +2061,14 @@ async function abrirDetalhes(id) {
     <!-- INFO -->
     <div class="form-card">
       <div id="cardInfo">${renderInfoCard(os)}</div>
-      ${urlMapa(os)?`<button class="btn btn-secondary" style="margin-top:14px" onclick="abrirMapa('${os.id}')">🗺️ Ver localização no mapa</button>`:''}
+      ${(() => {
+        const ponto = pontoMapa(os);
+        if (!ponto) return '';
+        const destaque = ponto.tipo === 'gps';
+        return `
+          <button class="btn btn-secondary" style="margin-top:14px${destaque ? ';border-color:var(--verde-medio,#2d9e65);color:var(--verde-medio,#2d9e65)' : ''}" onclick="abrirMapa('${os.id}')">${ponto.rotulo}</button>
+          <p style="font-size:11px;color:var(--cinza-texto);margin-top:5px;line-height:1.4">${esc(ponto.detalhe)}</p>`;
+      })()}
       <button class="btn btn-secondary" style="margin-top:8px" onclick="imprimirOS()">🖨️ Imprimir O.S.</button>
       ${fotosCampoUnificadas(os).length ? `
       <button class="btn btn-secondary" style="margin-top:8px" onclick="baixarFotosRelatorio('${os.id}')">
