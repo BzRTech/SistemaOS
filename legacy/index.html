@@ -755,15 +755,58 @@ function getUsuario() { try { return JSON.parse(localStorage.getItem('os_usuario
     <button class="btn btn-primary" id="btnImportar" style="display:none;margin-top:10px" onclick="confirmarImportCSV()">✅ Importar ordens</button>
   </div>
   <div class="form-card">
-    <div class="form-card-title">📥 Exportar</div>
+    <div class="form-card-title">📥 Baixar dados</div>
+    <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:14px">
+      Escolha o período e baixe a planilha com todas as informações das O.S. —
+      endereço, empresa, equipe, datas, tempo de execução, GPS e validação.
+    </p>
+
     <div class="form-group">
       <label class="form-label">Período</label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <input class="form-input" type="date" id="relDe">
-        <input class="form-input" type="date" id="relAte">
+        <input class="form-input" type="date" id="relDe" onchange="atualizarPreviaExportacao()">
+        <input class="form-input" type="date" id="relAte" onchange="atualizarPreviaExportacao()">
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button type="button" class="btn btn-secondary" style="padding:6px 11px;font-size:12px;width:auto;flex:0 1 auto" onclick="periodoExportacao('mes')">Este mês</button>
+        <button type="button" class="btn btn-secondary" style="padding:6px 11px;font-size:12px;width:auto;flex:0 1 auto" onclick="periodoExportacao('mesPassado')">Mês passado</button>
+        <button type="button" class="btn btn-secondary" style="padding:6px 11px;font-size:12px;width:auto;flex:0 1 auto" onclick="periodoExportacao('30')">Últimos 30 dias</button>
+        <button type="button" class="btn btn-secondary" style="padding:6px 11px;font-size:12px;width:auto;flex:0 1 auto" onclick="periodoExportacao('ano')">Este ano</button>
+        <button type="button" class="btn btn-secondary" style="padding:6px 11px;font-size:12px;width:auto;flex:0 1 auto" onclick="periodoExportacao('tudo')">Tudo</button>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="exportarCSV()">📥 Exportar CSV</button>
+
+    <div class="form-group">
+      <label class="form-label">Contar o período pela data de</label>
+      <select class="form-input" id="relCampoData" onchange="atualizarPreviaExportacao()">
+        <option value="abertura">Abertura da O.S.</option>
+        <option value="conclusao">Fechamento da O.S.</option>
+        <option value="execucao">Conclusão do serviço em campo</option>
+        <option value="solicitacao">Solicitação (protocolo)</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <select class="form-input" id="relStatus" onchange="atualizarPreviaExportacao()">
+        <option value="todos">Todos os status</option>
+        <option value="aberta">Abertas</option>
+        <option value="encaminhada">Encaminhadas</option>
+        <option value="direcionada">Direcionadas</option>
+        <option value="em_execucao">Em execução</option>
+        <option value="aguardando_gestor">Aguardando gestor</option>
+        <option value="aguardando_validacao">Aguardando validação</option>
+        <option value="fechada">Fechadas</option>
+        <option value="reaberta">Reabertas</option>
+      </select>
+      <select class="form-input" id="relEmpresa" onchange="atualizarPreviaExportacao()">
+        <option value="todas">🏢 Todas as empresas</option>
+      </select>
+    </div>
+
+    <div id="relPrevia" style="font-size:12px;color:var(--cinza-texto);background:var(--cinza-bg);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:12px;line-height:1.45"></div>
+
+    <button class="btn btn-primary" onclick="exportarExcel()" style="margin-bottom:8px">📊 Baixar Excel (.xlsx)</button>
+    <button class="btn btn-secondary" onclick="exportarCSV()">📄 Baixar CSV</button>
   </div>
 </div>
 
@@ -1110,7 +1153,7 @@ function showSection(id) {
   // O botão flutuante (+) só aparece na lista e apenas para quem abre O.S.
   const podeAbrirOS = ['admin', 'seinfra', 'assistente'].includes(getUsuario().perfil);
   document.getElementById('fabNova').style.display = (id === 'lista' && podeAbrirOS) ? 'flex' : 'none';
-  if (id === 'relatorio') renderRelatorio();
+  if (id === 'relatorio') { renderRelatorio(); atualizarPreviaExportacao(); }
   if (id === 'nova') { limparFormNova(); buscarProximoNumero(); }
   if (id === 'lista') setTimeout(atualizarSetasChips, 0);
 }
@@ -3205,24 +3248,415 @@ async function confirmarImportCSV() {
   }
 }
 
-function exportarCSV() {
-  let ordens = S.ordens;
+// ── GERADOR DE PLANILHA .XLSX ────────────────────────────────────────────────
+// Um .xlsx é um ZIP com alguns XMLs dentro. Montamos os dois aqui mesmo para
+// o download em Excel não depender de biblioteca externa nem de internet —
+// o campo e a secretaria precisam que funcione sempre.
+
+const TABELA_CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = TABELA_CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+const textoParaBytes = s => new TextEncoder().encode(s);
+
+// ZIP sem compressão (método "store"): simples, sem dependência, e o tamanho
+// de uma planilha de O.S. não justifica implementar deflate.
+function zipar(arquivos) {
+  const partes = [], central = [];
+  let deslocamento = 0;
+
+  const num = (v, n) => {
+    const b = new Uint8Array(n);
+    for (let i = 0; i < n; i++) b[i] = (v >>> (i * 8)) & 0xFF;
+    return b;
+  };
+  const juntar = (...bs) => {
+    const total = bs.reduce((s, b) => s + b.length, 0);
+    const out = new Uint8Array(total);
+    let p = 0;
+    for (const b of bs) { out.set(b, p); p += b.length; }
+    return out;
+  };
+
+  for (const { nome, conteudo } of arquivos) {
+    const dados = typeof conteudo === 'string' ? textoParaBytes(conteudo) : conteudo;
+    const nomeBytes = textoParaBytes(nome);
+    const crc = crc32(dados);
+    const cabecalho = juntar(
+      num(0x04034b50, 4), num(20, 2), num(0x0800, 2), num(0, 2),
+      num(0, 2), num(0, 2),                    // hora/data fixas
+      num(crc, 4), num(dados.length, 4), num(dados.length, 4),
+      num(nomeBytes.length, 2), num(0, 2), nomeBytes
+    );
+    partes.push(cabecalho, dados);
+    central.push(juntar(
+      num(0x02014b50, 4), num(20, 2), num(20, 2), num(0x0800, 2), num(0, 2),
+      num(0, 2), num(0, 2),
+      num(crc, 4), num(dados.length, 4), num(dados.length, 4),
+      num(nomeBytes.length, 2), num(0, 2), num(0, 2), num(0, 2), num(0, 2),
+      num(0, 4), num(deslocamento, 4), nomeBytes
+    ));
+    deslocamento += cabecalho.length + dados.length;
+  }
+
+  const dirCentral = juntar(...central);
+  const fim = juntar(
+    num(0x06054b50, 4), num(0, 2), num(0, 2),
+    num(arquivos.length, 2), num(arquivos.length, 2),
+    num(dirCentral.length, 4), num(deslocamento, 4), num(0, 2)
+  );
+  return juntar(...partes, dirCentral, fim);
+}
+
+// Excel recusa caracteres de controle no XML; & < > " também precisam escapar.
+const escXml = v => String(v ?? '')
+  .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+// Data → número de série do Excel (dias desde 30/12/1899), no horário local.
+function serieExcel(valor) {
+  const d = valor instanceof Date ? valor : new Date(valor);
+  if (isNaN(d.getTime())) return null;
+  return (d.getTime() - d.getTimezoneOffset() * 60000) / 86400000 + 25569;
+}
+
+const colunaExcel = n => {
+  let s = '';
+  n += 1;
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+};
+
+// Estilos: 0 padrão · 1 cabeçalho · 2 data+hora · 3 data · 4 texto longo
+const ESTILOS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2">
+<numFmt numFmtId="164" formatCode="dd/mm/yyyy\\ hh:mm"/>
+<numFmt numFmtId="165" formatCode="dd/mm/yyyy"/>
+</numFmts>
+<fonts count="2">
+<font><sz val="11"/><name val="Calibri"/></font>
+<font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font>
+</fonts>
+<fills count="3">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF7F0A1C"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left/><right/><top/><bottom style="thin"><color rgb="FFD8DDE3"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="5">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+// planilhas: [{ nome, colunas:[{titulo, largura, tipo}], linhas:[[valor,...]] }]
+// tipo: 'texto' | 'numero' | 'datahora' | 'data' | 'longo'
+function gerarXlsx(planilhas) {
+  const abas = planilhas.map((pl, i) => {
+    const cols = pl.colunas.map((c, n) =>
+      `<col min="${n + 1}" max="${n + 1}" width="${c.largura || 16}" customWidth="1"/>`).join('');
+
+    const celula = (ref, valor, tipo) => {
+      if (valor === null || valor === undefined || valor === '') return '';
+      if (tipo === 'numero' && typeof valor === 'number' && isFinite(valor))
+        return `<c r="${ref}"><v>${valor}</v></c>`;
+      if (tipo === 'datahora' || tipo === 'data') {
+        const s = serieExcel(valor);
+        if (s !== null) return `<c r="${ref}" s="${tipo === 'data' ? 3 : 2}"><v>${s}</v></c>`;
+      }
+      const estilo = tipo === 'longo' ? ' s="4"' : '';
+      return `<c r="${ref}" t="inlineStr"${estilo}><is><t xml:space="preserve">${escXml(valor)}</t></is></c>`;
+    };
+
+    const cabecalho = '<row r="1" ht="22" customHeight="1">' + pl.colunas.map((c, n) =>
+      `<c r="${colunaExcel(n)}1" t="inlineStr" s="1"><is><t>${escXml(c.titulo)}</t></is></c>`).join('') + '</row>';
+
+    const corpo = pl.linhas.map((linha, li) =>
+      `<row r="${li + 2}">` + linha.map((v, n) =>
+        celula(`${colunaExcel(n)}${li + 2}`, v, pl.colunas[n].tipo)).join('') + '</row>').join('');
+
+    const ultima = colunaExcel(Math.max(0, pl.colunas.length - 1));
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0"${i === 0 ? ' tabSelected="1"' : ''}>
+<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+</sheetView></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+<cols>${cols}</cols>
+<sheetData>${cabecalho}${corpo}</sheetData>
+<autoFilter ref="A1:${ultima}${pl.linhas.length + 1}"/>
+</worksheet>`;
+    return { nome: pl.nome, xml };
+  });
+
+  const arquivos = [
+    { nome: '[Content_Types].xml', conteudo: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+${abas.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>` },
+    { nome: '_rels/.rels', conteudo: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>` },
+    { nome: 'xl/workbook.xml', conteudo: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>${abas.map((a, i) => `<sheet name="${escXml(a.nome)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>
+</workbook>` },
+    { nome: 'xl/_rels/workbook.xml.rels', conteudo: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${abas.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}
+<Relationship Id="rId${abas.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>` },
+    { nome: 'xl/styles.xml', conteudo: ESTILOS_XML },
+    ...abas.map((a, i) => ({ nome: `xl/worksheets/sheet${i + 1}.xml`, conteudo: a.xml })),
+  ];
+
+  return zipar(arquivos);
+}
+
+// ── EXPORTAÇÃO DE DADOS ───────────────────────────────────────────────────────
+// Marca de ordem de bytes: sem ela o Excel abre o CSV com os acentos quebrados.
+const BOM_UTF8 = '\uFEFF';
+
+// Qual data do ciclo da O.S. o período filtra.
+const DATAS_EXPORTACAO = {
+  abertura:    { campo: 'criadoEm',        rotulo: 'abertura' },
+  conclusao:   { campo: 'concluidoEm',     rotulo: 'fechamento' },
+  execucao:    { campo: 'dataFimServico',  rotulo: 'conclusão do serviço em campo' },
+  solicitacao: { campo: 'dataSolicitacao', rotulo: 'solicitação' },
+};
+
+// Aplica o período e os filtros escolhidos na aba Relatório.
+function ordensParaExportar() {
+  const base = DATAS_EXPORTACAO[document.getElementById('relCampoData').value] || DATAS_EXPORTACAO.abertura;
   const de = document.getElementById('relDe').value;
   const ate = document.getElementById('relAte').value;
-  if (de) ordens = ordens.filter(o => o.criadoEm >= de);
-  if (ate) ordens = ordens.filter(o => o.criadoEm <= ate + 'T23:59:59');
+  const status = document.getElementById('relStatus').value;
+  const empresa = document.getElementById('relEmpresa').value;
 
-  const hdrs = ['Número','Tipo','Descrição','Status','Endereço','Bairro','Solicitante','Responsável','Equipe','Prioridade','Tag','Ocorrências','Primeira Ocorrência','Prazo','Aberta em','Concluída em'];
-  const rows = ordens.map(o => [
-    o.numero, o.tipo, o.descricao||'', labelStatus(o.status),
-    o.endereco||'', o.bairro||'', o.solicitante||'', o.responsavel||'', o.equipe||'',
-    o.prioridade||'', o.tag||'', o.ocorrencias||1, o.primeiraOcorrencia?fmtData(o.primeiraOcorrencia):'',
-    o.prazo||'', fmtDataHora(o.criadoEm), o.concluidoEm?fmtDataHora(o.concluidoEm):''
-  ]);
-  const esc = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g,'""') + '"' : String(v);
-  const csv = [hdrs, ...rows].map(r => r.map(esc).join(',')).join('\n');
-  const url = URL.createObjectURL(new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' }));
-  Object.assign(document.createElement('a'), { href:url, download:`OS_${new Date().toISOString().slice(0,10)}.csv` }).click();
+  return S.ordens.filter(o => {
+    const d = o[base.campo];
+    // Sem a data do critério, a O.S. não pertence ao período pedido.
+    if ((de || ate) && !d) return false;
+    const dia = String(d).slice(0, 10);
+    if (de && dia < de) return false;
+    if (ate && dia > ate) return false;
+    if (status !== 'todos' && o.status !== status) return false;
+    if (empresa !== 'todas') {
+      if (empresa === '__sem__') { if ((o.empresaDesignada || '').trim()) return false; }
+      else if ((o.empresaDesignada || '').trim() !== empresa) return false;
+    }
+    return true;
+  });
+}
+
+// Colunas do relatório, na ordem em que fazem sentido para quem lê.
+const COLUNAS_EXPORTACAO = [
+  { titulo: 'Número',                largura: 15, tipo: 'texto',    valor: o => o.numero },
+  { titulo: 'Status',                largura: 18, tipo: 'texto',    valor: o => labelStatus(o.status) },
+  { titulo: 'Tipo de serviço',       largura: 24, tipo: 'texto',    valor: o => o.tipo || '' },
+  { titulo: 'Descrição',             largura: 46, tipo: 'longo',    valor: o => o.descricao || '' },
+  { titulo: 'Prioridade',            largura: 12, tipo: 'texto',    valor: o => rotuloPrioridade(o.prioridade) },
+  { titulo: 'Tag',                   largura: 18, tipo: 'texto',    valor: o => o.tag || '' },
+  { titulo: 'Endereço',              largura: 34, tipo: 'texto',    valor: o => o.endereco || '' },
+  { titulo: 'Bairro',                largura: 20, tipo: 'texto',    valor: o => o.bairro || '' },
+  { titulo: 'Ponto de referência',   largura: 28, tipo: 'longo',    valor: o => o.referencia || '' },
+  { titulo: 'Solicitante',           largura: 20, tipo: 'texto',    valor: o => o.solicitante || '' },
+  { titulo: 'Responsável',           largura: 20, tipo: 'texto',    valor: o => o.responsavel || '' },
+  { titulo: 'Empresa',               largura: 24, tipo: 'texto',    valor: o => o.empresaDesignada || '' },
+  { titulo: 'Equipe',                largura: 14, tipo: 'texto',    valor: o => o.equipeDesignada || o.equipe || '' },
+  { titulo: 'Ocorrências',           largura: 12, tipo: 'numero',   valor: o => o.ocorrencias || 1 },
+  { titulo: 'Aberta por',            largura: 22, tipo: 'texto',    valor: o => o.criadoPorNome || '' },
+  { titulo: 'Data da solicitação',   largura: 15, tipo: 'data',     valor: o => o.dataSolicitacao || null },
+  { titulo: 'Aberta em',             largura: 18, tipo: 'datahora', valor: o => o.criadoEm || null },
+  { titulo: 'Prazo',                 largura: 14, tipo: 'data',     valor: o => o.prazo || null },
+  { titulo: 'Início do serviço',     largura: 18, tipo: 'datahora', valor: o => o.dataInicioServico || null },
+  { titulo: 'Conclusão do serviço',  largura: 18, tipo: 'datahora', valor: o => o.dataFimServico || null },
+  { titulo: 'Tempo de execução (h)', largura: 16, tipo: 'numero',   valor: o => horasExecucao(o) },
+  { titulo: 'Validada por',          largura: 22, tipo: 'texto',    valor: o => o.validadoPorNome || o.validadoGestorPorNome || '' },
+  { titulo: 'Validada em',           largura: 18, tipo: 'datahora', valor: o => o.validadoEm || o.validadoGestorEm || null },
+  { titulo: 'Fechada em',            largura: 18, tipo: 'datahora', valor: o => o.concluidoEm || null },
+  { titulo: 'Motivo da rejeição',    largura: 34, tipo: 'longo',    valor: o => o.motivoRejeicao || '' },
+  { titulo: 'GPS do início',         largura: 22, tipo: 'texto',    valor: o => o.gpsInicio || '' },
+  { titulo: 'GPS da conclusão',      largura: 22, tipo: 'texto',    valor: o => o.gpsFim || '' },
+  { titulo: 'Foto de abertura',      largura: 14, tipo: 'texto',    valor: o => o.temFotoAbertura ? 'Sim' : 'Não' },
+  { titulo: 'Foto de conclusão',     largura: 14, tipo: 'texto',    valor: o => o.temFotoConclusao ? 'Sim' : 'Não' },
+];
+
+const rotuloPrioridade = p => ({ alta: 'Alta', media: 'Média', baixa: 'Baixa' }[p] || p || '');
+
+// Horas entre o início e a conclusão do serviço em campo (2 casas decimais).
+function horasExecucao(o) {
+  if (!o.dataInicioServico || !o.dataFimServico) return null;
+  const a = new Date(o.dataInicioServico).getTime();
+  const b = new Date(o.dataFimServico).getTime();
+  if (isNaN(a) || isNaN(b) || b < a) return null;
+  return Math.round((b - a) / 36000) / 100;
+}
+
+const nomeArquivoExportacao = ext => {
+  const de = document.getElementById('relDe').value;
+  const ate = document.getElementById('relAte').value;
+  const periodo = (de || ate) ? `${de || 'inicio'}_a_${ate || 'hoje'}` : new Date().toISOString().slice(0, 10);
+  return `OS_${periodo}.${ext}`;
+};
+
+// Contagens por status, empresa, prioridade, bairro e tipo — a aba de resumo.
+function resumoExportacao(ordens, periodo) {
+  const contar = chave => {
+    const m = new Map();
+    ordens.forEach(o => { const v = (chave(o) || '(não informado)'); m.set(v, (m.get(v) || 0) + 1); });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const linhas = [['Total', 'O.S. no período', ordens.length]];
+  contar(o => labelStatus(o.status)).forEach(([k, n]) => linhas.push(['Status', k, n]));
+  contar(o => o.empresaDesignada).forEach(([k, n]) => linhas.push(['Empresa', k, n]));
+  contar(o => rotuloPrioridade(o.prioridade)).forEach(([k, n]) => linhas.push(['Prioridade', k, n]));
+  contar(o => o.bairro).forEach(([k, n]) => linhas.push(['Bairro', k, n]));
+  contar(o => o.tipo).forEach(([k, n]) => linhas.push(['Tipo de serviço', k, n]));
+  linhas.push(['Filtro', periodo, null]);
+  linhas.push(['Filtro', 'Gerado em ' + fmtDataHora(new Date().toISOString()), null]);
+  return linhas;
+}
+
+function descricaoPeriodo() {
+  const base = DATAS_EXPORTACAO[document.getElementById('relCampoData').value] || DATAS_EXPORTACAO.abertura;
+  const de = document.getElementById('relDe').value;
+  const ate = document.getElementById('relAte').value;
+  if (!de && !ate) return 'Todas as O.S. (sem filtro de período)';
+  return `Por data de ${base.rotulo}: ${de ? fmtData(de) : 'início'} a ${ate ? fmtData(ate) : 'hoje'}`;
+}
+
+function baixarArquivo(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: nome });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function exportarExcel() {
+  const ordens = ordensParaExportar();
+  if (!ordens.length) { toast('Nenhuma O.S. no período escolhido.'); return; }
+  try {
+    const bytes = gerarXlsx([
+      {
+        nome: 'Ordens de Serviço',
+        colunas: COLUNAS_EXPORTACAO.map(c => ({ titulo: c.titulo, largura: c.largura, tipo: c.tipo })),
+        linhas: ordens.map(o => COLUNAS_EXPORTACAO.map(c => c.valor(o))),
+      },
+      {
+        nome: 'Resumo',
+        colunas: [
+          { titulo: 'Categoria',  largura: 20, tipo: 'texto' },
+          { titulo: 'Item',       largura: 46, tipo: 'texto' },
+          { titulo: 'Quantidade', largura: 13, tipo: 'numero' },
+        ],
+        linhas: resumoExportacao(ordens, descricaoPeriodo()),
+      },
+    ]);
+    baixarArquivo(
+      new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      nomeArquivoExportacao('xlsx')
+    );
+    toast(`📊 Excel gerado com ${ordens.length} O.S.`, 3000);
+  } catch (e) {
+    console.error('exportarExcel:', e);
+    toast('Erro ao gerar o Excel: ' + e.message, 4000);
+  }
+}
+
+function exportarCSV() {
+  const ordens = ordensParaExportar();
+  if (!ordens.length) { toast('Nenhuma O.S. no período escolhido.'); return; }
+  const valorCsv = (c, o) => {
+    const v = c.valor(o);
+    if (v === null || v === undefined || v === '') return '';
+    if (c.tipo === 'datahora') return fmtDataHora(v);
+    if (c.tipo === 'data') return fmtData(v);
+    if (c.tipo === 'numero') return String(v).replace('.', ',');  // decimal brasileiro
+    return v;
+  };
+  const celula = v => {
+    const s = String(v);
+    return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const linhas = [
+    COLUNAS_EXPORTACAO.map(c => celula(c.titulo)).join(';'),
+    ...ordens.map(o => COLUNAS_EXPORTACAO.map(c => celula(valorCsv(c, o))).join(';')),
+  ];
+  // ';' e BOM: é assim que o Excel em português abre o CSV sem bagunçar as colunas
+  baixarArquivo(
+    new Blob([BOM_UTF8 + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8;' }),
+    nomeArquivoExportacao('csv')
+  );
+  toast(`📄 CSV gerado com ${ordens.length} O.S.`, 3000);
+}
+
+// ── Controles do período ──────────────────────────────────────────────────────
+const diaISO = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+function periodoExportacao(qual) {
+  const hoje = new Date();
+  let de = null, ate = hoje;
+  if (qual === 'mes') de = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  else if (qual === 'mesPassado') {
+    de = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+    ate = new Date(hoje.getFullYear(), hoje.getMonth(), 0);   // último dia do mês anterior
+  }
+  else if (qual === '30') de = new Date(hoje.getTime() - 30 * 86400000);
+  else if (qual === 'ano') de = new Date(hoje.getFullYear(), 0, 1);
+  else { de = null; ate = null; }   // tudo
+  document.getElementById('relDe').value = de ? diaISO(de) : '';
+  document.getElementById('relAte').value = ate ? diaISO(ate) : '';
+  atualizarPreviaExportacao();
+}
+
+// Mostra quantas O.S. o arquivo vai levar, antes de baixar.
+function atualizarPreviaExportacao() {
+  const el = document.getElementById('relPrevia');
+  if (!el) return;
+  const selEmp = document.getElementById('relEmpresa');
+  if (selEmp && selEmp.dataset.montado !== '1') {
+    const empresas = [...new Set(S.ordens.map(o => (o.empresaDesignada || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt'));
+    selEmp.innerHTML = '<option value="todas">🏢 Todas as empresas</option>'
+      + empresas.map(e => `<option value="${esc(e)}">🏢 ${esc(e)}</option>`).join('')
+      + (S.ordens.some(o => !(o.empresaDesignada || '').trim()) ? '<option value="__sem__">(sem empresa)</option>' : '');
+    selEmp.dataset.montado = '1';
+  }
+  const n = ordensParaExportar().length;
+  el.innerHTML = n
+    ? `<strong>${n}</strong> ${n === 1 ? 'O.S. será incluída' : 'O.S. serão incluídas'} no arquivo · ${esc(descricaoPeriodo())}`
+    : `Nenhuma O.S. no período escolhido · ${esc(descricaoPeriodo())}`;
+  el.style.color = n ? 'var(--cinza-texto)' : 'var(--vermelho)';
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────

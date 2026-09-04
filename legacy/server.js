@@ -401,6 +401,10 @@ function mapRow(r, incluirFotos) {
     validadoEm: r.validado_em || null,
     validadoGestorPor: r.validado_gestor_por || null,
     validadoGestorEm: r.validado_gestor_em || null,
+    // Nomes (quando a consulta os traz) — usados na exportação de dados.
+    criadoPorNome: r.criado_por_nome || null,
+    validadoPorNome: r.validado_por_nome || null,
+    validadoGestorPorNome: r.validado_gestor_por_nome || null,
     fotosCampo: incluirFotos ? parseFotosCampo(r.fotos_campo) : undefined,
     motivoRejeicao: r.motivo_rejeicao || null,
     dataSolicitacao: r.data_solicitacao || null,
@@ -762,6 +766,11 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
              empresa_designada, equipe_designada, gps_inicio, gps_fim,
              data_inicio_servico, data_fim_servico,
              validado_por, validado_em, motivo_rejeicao, data_solicitacao,
+             validado_gestor_por, validado_gestor_em, criado_por,
+             -- nomes resolvidos: a exportação precisa de gente, não de UUID
+             (SELECT nome FROM usuarios WHERE id = ordens_servico.criado_por)          AS criado_por_nome,
+             (SELECT nome FROM usuarios WHERE id = ordens_servico.validado_por)        AS validado_por_nome,
+             (SELECT nome FROM usuarios WHERE id = ordens_servico.validado_gestor_por) AS validado_gestor_por_nome,
              (foto_abertura  IS NOT NULL AND foto_abertura::text  NOT IN ('', '[]')) AS tem_abertura,
              (foto_conclusao IS NOT NULL AND foto_conclusao::text NOT IN ('', '[]')) AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
