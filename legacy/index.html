@@ -2485,11 +2485,16 @@ function imprimirOS() {
   const tempoExecTxt = ciclosExec.length
     ? fmtDuracao(totalExecMs)
     : (emAndamento ? 'em execução' : '–');
-  const tempoDetalhe = [
-    ciclosExec.length > 1
-      ? ciclosExec.map(c => `Execução ${c.ciclo}: ${fmtDuracao(c.ms)}`).join(' &nbsp;·&nbsp; ') : '',
-    totalPausadoMs > 0 ? `⏸️ Tempo pausado (não contado): ${fmtDuracao(totalPausadoMs)}` : '',
-  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  // Tempo pausado em campo separado: o tempo de serviço já vem sem as pausas.
+  const tempoPausadoTxt = ciclosExec.length
+    ? (totalPausadoMs > 0 ? fmtDuracao(totalPausadoMs) : 'sem pausas')
+    : (emAndamento ? 'em execução' : '–');
+  // O.S. reaberta: detalha cada execução e soma o tempo de serviço de todas.
+  const tempoDetalhe = ciclosExec.length > 1
+    ? ciclosExec.map(c => `Execução ${c.ciclo}: ${fmtDuracao(c.ms)} de serviço`
+        + (c.pausado ? ` + ${fmtDuracao(c.pausado)} pausado` : '')).join(' &nbsp;·&nbsp; ')
+      + ` &nbsp;·&nbsp; <strong>Total de serviço: ${fmtDuracao(totalExecMs)}</strong>`
+    : '';
 
   const historico = (os.historico || []).map(h => `
     <tr><td>${fmtDataHora(h.data)}</td><td class="st">${iconStatus(h.status)} ${labelStatus(h.status)}</td><td>${e(h.obs || '')}</td></tr>`).join('');
@@ -2636,9 +2641,10 @@ td.st { font-weight: 700; white-space: nowrap; }
     <div class="campo"><div class="rotulo">Solicitante</div><div class="valor">${e(os.solicitante) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Responsável técnico</div><div class="valor">${e(os.responsavel) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Equipe / Empreiteira</div><div class="valor">${e(os.equipe) || '–'}</div></div>
-    <div class="campo"><div class="rotulo">⏱ Tempo de execução</div><div class="valor">${tempoExecTxt}</div></div>
+    <div class="campo"><div class="rotulo">⏱ Tempo de serviço (sem pausas)</div><div class="valor">${tempoExecTxt}</div></div>
+    <div class="campo"><div class="rotulo">⏸️ Tempo pausado</div><div class="valor">${tempoPausadoTxt}</div></div>
   </div>
-  ${tempoDetalhe ? `<div class="tempo-detalhe">${tempoDetalhe} &nbsp;·&nbsp; <strong>Total: ${fmtDuracao(totalExecMs)}</strong></div>` : ''}
+  ${tempoDetalhe ? `<div class="tempo-detalhe">${tempoDetalhe}</div>` : ''}
 </div>
 
 <div class="secao">
