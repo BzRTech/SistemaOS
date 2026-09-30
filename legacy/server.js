@@ -98,6 +98,11 @@ async function iniciarBanco() {
   // Arquivo de TODAS as fotos de campo (início/fim) de todos os ciclos — preserva
   // as fotos das execuções rejeitadas quando a OS é reaberta e refeita.
   await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS fotos_campo JSONB DEFAULT '[]'`);
+  // Pausa do serviço em campo: a O.S. segue "em_execucao", só com a marca de
+  // pausada. Pausar e retomar exigem foto + GPS (vão para fotos_campo).
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS pausada BOOLEAN DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS motivo_pausa TEXT`);
+  await pool.query(`ALTER TABLE ordens_servico ADD COLUMN IF NOT EXISTS pausada_em TIMESTAMPTZ`);
 
   // Migração: remover NOT NULL de solicitante (para compatibilidade)
   try {
@@ -354,7 +359,8 @@ function parseFotos(v) {
 }
 
 // Arquivo de fotos de campo (JSONB) — pode vir como array (pg) ou string JSON.
-// Cada item: { tipo:'inicio'|'fim', ciclo, foto, gps, dataHora, criadoEm, refeita? }
+// Cada item: { tipo:'inicio'|'pausa'|'retomada'|'fim', ciclo, foto, gps, dataHora,
+//              criadoEm, refeita?, motivo? (pausa) }
 function parseFotosCampo(v) {
   if (!v) return [];
   if (typeof v === 'string') {
@@ -403,6 +409,11 @@ function mapRow(r, incluirFotos) {
     validadoGestorEm: r.validado_gestor_em || null,
     fotosCampo: incluirFotos ? parseFotosCampo(r.fotos_campo) : undefined,
     motivoRejeicao: r.motivo_rejeicao || null,
+    // A pausa só vale enquanto a O.S. está em execução — se o status mudar por
+    // outro caminho (edição do admin), a marca antiga não aparece.
+    pausada: !!r.pausada && r.status === 'em_execucao',
+    motivoPausa: (r.pausada && r.status === 'em_execucao') ? (r.motivo_pausa || null) : null,
+    pausadaEm: (r.pausada && r.status === 'em_execucao') ? (r.pausada_em || null) : null,
     dataSolicitacao: r.data_solicitacao || null,
     fotosPdf: incluirFotos ? parseFotos(r.fotos_pdf) : undefined,
   };
@@ -762,6 +773,7 @@ app.get('/api/ordens', qualquerUsuario, async (req, res) => {
              empresa_designada, equipe_designada, gps_inicio, gps_fim,
              data_inicio_servico, data_fim_servico,
              validado_por, validado_em, motivo_rejeicao, data_solicitacao,
+             pausada, motivo_pausa, pausada_em,
              (foto_abertura  IS NOT NULL AND foto_abertura::text  NOT IN ('', '[]')) AS tem_abertura,
              (foto_conclusao IS NOT NULL AND foto_conclusao::text NOT IN ('', '[]')) AS tem_conclusao,
              historico, criado_em, atualizado_em, concluido_em
@@ -1184,7 +1196,8 @@ app.post('/api/ordens/:id/registrar-inicio', adminOuEquipe, async (req, res) => 
     const { rows } = await pool.query(
       `UPDATE ordens_servico SET
          foto_inicio = $1, gps_inicio = $2, data_inicio_servico = $3,
-         status = 'em_execucao', historico = $4, fotos_campo = $6, atualizado_em = NOW()
+         status = 'em_execucao', historico = $4, fotos_campo = $6,
+         pausada = FALSE, motivo_pausa = NULL, pausada_em = NULL, atualizado_em = NOW()
        WHERE id = $5 RETURNING *`,
       [foto || null, gps || null, normalizarDataHora(dataHora), JSON.stringify(historico), id,
        JSON.stringify(fotosCampo)]
@@ -1215,6 +1228,8 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
     // Valida status e equipe (+ empresa: nome de equipe se repete entre empresas)
     if (os.status !== 'em_execucao')
       return res.status(400).json({ erro: 'OS precisa estar em execução para registrar fim' });
+    if (os.pausada)
+      return res.status(400).json({ erro: 'O serviço está pausado. Retome o serviço antes de registrar a conclusão.' });
     if (req.usuario.perfil === 'equipe' &&
         (os.equipe_designada !== req.usuario.equipe_nome ||
          os.empresa_designada !== req.usuario.empresa))
@@ -1254,6 +1269,84 @@ app.post('/api/ordens/:id/registrar-fim', adminOuEquipe, async (req, res) => {
     res.json(mapRow(rows[0], true));
   } catch (e) { console.error('POST registrar-fim:', e.message); res.status(500).json({ erro: e.message }); }
 });
+
+// Pausar / retomar o serviço em campo (equipe dona, admin). A O.S. continua
+// "em_execucao"; muda só a marca `pausada`. Cada pausa e cada retomada exigem
+// foto + GPS, arquivadas em fotos_campo no ciclo de execução atual — assim o
+// gestor vê onde e quando a equipe parou e voltou, e o tempo parado sai do
+// tempo de execução.
+async function registrarPausaOuRetomada(req, res, pausar) {
+  const rotulo = pausar ? 'pausa' : 'retomada';
+  try {
+    const { id } = req.params;
+    const { foto, gps, dataHora, carimbada } = req.body;
+    const motivo = String(req.body.motivo || '').trim().slice(0, 500);
+    if (!foto) return res.status(400).json({ erro: `Tire a foto da ${rotulo} do serviço` });
+    if (!gps || !String(gps).trim())
+      return res.status(400).json({ erro: `Foto de ${rotulo} precisa de GPS. Ative a localização do dispositivo e permita o acesso.` });
+    if (pausar && !motivo)
+      return res.status(400).json({ erro: 'Informe o motivo da pausa' });
+
+    const { rows: atual } = await pool.query('SELECT * FROM ordens_servico WHERE id = $1', [id]);
+    if (!atual.length) return res.status(404).json({ erro: 'OS não encontrada' });
+    const os = atual[0];
+
+    if (req.usuario.perfil === 'equipe' &&
+        (os.equipe_designada !== req.usuario.equipe_nome ||
+         os.empresa_designada !== req.usuario.empresa))
+      return res.status(403).json({ erro: 'Esta OS não está designada para sua equipe' });
+    if (os.status !== 'em_execucao')
+      return res.status(400).json({ erro: `OS precisa estar em execução para registrar ${rotulo}` });
+    if (pausar && os.pausada)
+      return res.status(400).json({ erro: 'O serviço já está pausado' });
+    if (!pausar && !os.pausada)
+      return res.status(400).json({ erro: 'O serviço não está pausado' });
+
+    const historico = parseHistorico(os.historico);
+    historico.push({
+      status: 'em_execucao',
+      data: new Date().toISOString(),
+      obs: pausar
+        ? `Serviço pausado por ${req.usuario.nome} — motivo: ${motivo}`
+        : `Serviço retomado por ${req.usuario.nome}`,
+      usuario: req.usuario.id,
+    });
+
+    const fotosCampo = parseFotosCampo(os.fotos_campo);
+    const ciclo = Math.max(1, fotosCampo.filter(f => f.tipo === 'inicio').length);
+    // sem data/hora, usa o momento do registro: a pausa precisa de horário
+    // para ser descontada do tempo de execução
+    const dh = normalizarDataHora(dataHora) || new Date().toISOString();
+    fotosCampo.push({
+      tipo: rotulo, ciclo, foto, gps: gps || null,
+      dataHora: dh, criadoEm: new Date().toISOString(),
+      carimbada: !!carimbada,
+      ...(pausar ? { motivo } : {}),
+    });
+
+    const { rows } = await pool.query(
+      `UPDATE ordens_servico SET
+         pausada = $1, motivo_pausa = $2, pausada_em = $3,
+         historico = $4, fotos_campo = $6, atualizado_em = NOW()
+       WHERE id = $5 RETURNING *`,
+      [pausar, pausar ? motivo : null, pausar ? dh : null,
+       JSON.stringify(historico), id, JSON.stringify(fotosCampo)]
+    );
+    auditar(req, {
+      categoria: 'ordem', acao: pausar ? 'os_servico_pausado' : 'os_servico_retomado',
+      entidade: 'ordem_servico', entidadeId: id, entidadeRef: os.numero,
+      descricao: pausar
+        ? `Pausou o serviço da O.S. ${os.numero} — ${motivo}`
+        : `Retomou o serviço da O.S. ${os.numero}`,
+      detalhe: { gps: gps || null, ciclo, ...(pausar ? { motivo } : {}),
+                 empresa: os.empresa_designada, equipe: os.equipe_designada },
+    });
+    res.json(mapRow(rows[0], true));
+  } catch (e) { console.error(`POST ${rotulo}:`, e.message); res.status(500).json({ erro: e.message }); }
+}
+
+app.post('/api/ordens/:id/pausar', adminOuEquipe, (req, res) => registrarPausaOuRetomada(req, res, true));
+app.post('/api/ordens/:id/retomar', adminOuEquipe, (req, res) => registrarPausaOuRetomada(req, res, false));
 
 // Refazer/trocar a foto de serviço (início ou fim) sem alterar o status —
 // para o caso de a primeira foto não ter ficado boa. (equipe dona, admin)

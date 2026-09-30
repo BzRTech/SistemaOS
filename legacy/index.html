@@ -154,6 +154,8 @@ body {
 }
 .foto-pill.tem { background: var(--verde-claro); color: var(--verde); }
 .foto-pill.nao { background: var(--cinza-bg); color: var(--cinza-texto); }
+.foto-pill.pausada { background: #fef3c7; color: #92400e; }
+.badge-pausada { background: #fef3c7; color: #92400e; }
 
 /* FORM */
 .form-card {
@@ -1342,6 +1344,16 @@ function carimbarFotoGeo(dataUrl, info) {
   });
 }
 
+// Tipos de foto de campo: início, pausa, retomada e conclusão do serviço.
+const ROTULO_FOTO_CAMPO = { inicio: 'Início', pausa: 'Pausa', retomada: 'Retomada', fim: 'Conclusão' };
+const SUFIXO_FOTO_CAMPO = { inicio: 'inicio', pausa: 'pausa', retomada: 'retomada', fim: 'conclusao' };
+const CARIMBO_FOTO_CAMPO = {
+  inicio: 'INÍCIO DO SERVIÇO', pausa: 'SERVIÇO PAUSADO',
+  retomada: 'SERVIÇO RETOMADO', fim: 'CONCLUSÃO DO SERVIÇO',
+};
+const rotuloFotoCampo = tipo => ROTULO_FOTO_CAMPO[tipo] || 'Conclusão';
+const sufixoFotoCampo = tipo => SUFIXO_FOTO_CAMPO[tipo] || 'conclusao';
+
 // Dados de georreferenciamento da O.S. usados no carimbo da foto.
 function dadosCarimbo(os, tipo, gps, dataHora) {
   return {
@@ -1351,7 +1363,7 @@ function dadosCarimbo(os, tipo, gps, dataHora) {
     bairro: (os && os.bairro) || '',
     cidade: CIDADE_PADRAO,
     gps, dataHora,
-    rotulo: tipo === 'inicio' ? 'INÍCIO DO SERVIÇO' : 'CONCLUSÃO DO SERVIÇO',
+    rotulo: CARIMBO_FOTO_CAMPO[tipo] || CARIMBO_FOTO_CAMPO.fim,
   };
 }
 
@@ -1400,7 +1412,7 @@ async function baixarFotoArquivo(id, indice) {
   if (!f) { toast('Foto não encontrada.'); return; }
   await baixarFoto(
     f.foto, os.numero,
-    `${f.tipo === 'inicio' ? 'inicio' : 'conclusao'}_exec${f.ciclo || 1}`,
+    `${sufixoFotoCampo(f.tipo)}_exec${f.ciclo || 1}`,
     dadosCarimbo(os, f.tipo, f.gps, f.dataHora),
     !!f.carimbada
   );
@@ -1417,7 +1429,7 @@ async function baixarFotosRelatorio(id) {
   toast(`⏬ Baixando ${fotos.length} foto${fotos.length > 1 ? 's' : ''} com os dados georreferenciados...`, 3200);
   let i = 0;
   for (const f of fotos) {
-    const sufixo = `${f.tipo === 'inicio' ? 'inicio' : 'conclusao'}_exec${f.ciclo || 1}_${++i}`;
+    const sufixo = `${sufixoFotoCampo(f.tipo)}_exec${f.ciclo || 1}_${++i}`;
     await baixarFoto(
       f.foto, os.numero, sufixo,
       dadosCarimbo(os, f.tipo, f.gps, f.dataHora),
@@ -1597,6 +1609,7 @@ function renderLista() {
       <div class="os-fotos-row">
         <div class="foto-pill ${os.temFotoAbertura?'tem':'nao'}">📷 Abertura ${os.temFotoAbertura?'✓':'–'}</div>
         <div class="foto-pill ${os.temFotoConclusao?'tem':'nao'}">📸 Conclusão ${os.temFotoConclusao?'✓':'–'}</div>
+        ${os.pausada?`<div class="foto-pill pausada">⏸️ Pausada</div>`:''}
         ${urlMapa(os)?`<div class="foto-pill tem" style="margin-left:auto;background:var(--azul-claro);color:var(--azul)" onclick="abrirMapa('${os.id}', event)">🗺️ Mapa</div>`:''}
       </div>
     </div>`).join('');
@@ -1905,7 +1918,10 @@ async function abrirDetalhes(id) {
 
   document.getElementById('modalNumero').textContent = os.numero;
   document.getElementById('modalTipo').textContent = os.tipo || '';
-  document.getElementById('modalBadge').innerHTML = `<span class="os-badge badge-${os.status}">${labelStatus(os.status)}</span>`;
+  // Pausada continua "em execução" — o selo de pausa ocupa o lugar do status.
+  document.getElementById('modalBadge').innerHTML = os.pausada
+    ? '<span class="os-badge badge-pausada">⏸️ Pausada</span>'
+    : `<span class="os-badge badge-${os.status}">${labelStatus(os.status)}</span>`;
 
   const finalizada = os.status === 'fechada' || os.status === 'cancelada';
   const conclusaoLiberada = !finalizada && !['aberta','encaminhada','direcionada'].includes(os.status);
@@ -1934,12 +1950,30 @@ async function abrirDetalhes(id) {
           </div>`;
       }
 
-      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'em_execucao') {
+      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'em_execucao' && os.pausada) {
+        acoesHtml += `
+          <div class="form-card" style="border:3px solid #92400e;background:#fef3c7;padding:20px">
+            <div class="form-card-title" style="color:#92400e;font-size:18px;text-align:center">⏸️ SERVIÇO PAUSADO</div>
+            <p style="font-size:13px;color:#92400e;margin-bottom:6px;text-align:center">
+              ${os.pausadaEm ? `Pausado em ${fmtDataHora(os.pausadaEm)}` : 'Pausado'}${os.motivoPausa ? ` — <strong>${esc(os.motivoPausa)}</strong>` : ''}
+            </p>
+            <p style="font-size:13px;color:var(--cinza-texto);margin-bottom:14px;text-align:center">Tire uma foto do local para retomar o serviço. GPS e data/hora serão capturados automaticamente.</p>
+            <button class="btn btn-primary" style="width:100%;padding:16px 20px;font-size:16px;background:var(--laranja,#e07b1a);border-color:var(--laranja,#e07b1a);font-weight:700" onclick="registrarFotoServico('${os.id}','retomada')">▶️ TIRAR FOTO E RETOMAR SERVIÇO</button>
+          </div>`;
+      }
+
+      if ((usuario.perfil === 'equipe' || usuario.perfil === 'admin') && os.status === 'em_execucao' && !os.pausada) {
         acoesHtml += `
           <div class="form-card" style="border:3px solid var(--verde-medio,#2d9e65);background:rgba(45,158,101,0.1);padding:20px">
             <div class="form-card-title" style="color:var(--verde-medio,#2d9e65);font-size:18px;text-align:center">📷 REGISTRAR CONCLUSÃO</div>
             <p style="font-size:13px;color:var(--cinza-texto);margin-bottom:14px;text-align:center">Tire uma foto do serviço concluído. GPS e data/hora serão capturados automaticamente.</p>
             <button class="btn btn-primary" style="width:100%;padding:16px 20px;font-size:16px;background:var(--verde-medio,#2d9e65);border-color:var(--verde-escuro,#1a6e45);font-weight:700" onclick="registrarFotoServico('${os.id}','fim')">📷 TIRAR FOTO E CONCLUIR</button>
+          </div>
+          <div class="form-card" style="border:2px solid #92400e;background:#fffbeb;padding:16px">
+            <div class="form-card-title" style="color:#92400e;text-align:center">⏸️ PRECISA PARAR O SERVIÇO?</div>
+            <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px;text-align:center">Informe o motivo e tire uma foto do local. Para retomar, será pedida outra foto.</p>
+            <input class="form-input" id="motivoPausa" maxlength="500" placeholder="Motivo da pausa (ex.: falta de material, chuva, fim do expediente)">
+            <button class="btn btn-secondary" style="width:100%;margin-top:10px;padding:12px 16px;font-weight:700;color:#92400e;border-color:#92400e" onclick="registrarFotoServico('${os.id}','pausa')">⏸️ TIRAR FOTO E PAUSAR</button>
           </div>`;
       }
 
@@ -2053,6 +2087,28 @@ async function abrirDetalhes(id) {
       })()}
     </div>` : ''}
 
+    <!-- PAUSAS DO SERVIÇO (execução atual) -->
+    ${(() => {
+      const fc = os.fotosCampo || [];
+      const cicloAtual = fc.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
+      const pausas = fc.map((f, i) => ({ ...f, i }))
+        .filter(f => (f.tipo === 'pausa' || f.tipo === 'retomada') && (f.ciclo || 1) === cicloAtual);
+      if (!pausas.length) return '';
+      return `
+      <div class="form-card" style="border-left:4px solid #92400e">
+        <div class="form-card-title">⏸️ Pausas do Serviço <span style="font-size:11px;font-weight:400;color:var(--cinza-texto)">(${pausas.filter(f => f.tipo === 'pausa').length})</span></div>
+        <div class="fotos-grid" style="margin-top:0">${pausas.map(f => `
+          <div class="foto-thumb">
+            <img src="${f.foto}" onclick="verFoto('${f.foto}')" alt="${rotuloFotoCampo(f.tipo)}">
+            <div style="font-size:9px;text-align:center;padding:3px 2px;color:#92400e;background:#fef3c7;line-height:1.35">
+              ${f.tipo === 'pausa' ? '⏸️' : '▶️'} ${rotuloFotoCampo(f.tipo)}${f.dataHora ? ' · ' + fmtDataHora(f.dataHora) : ''}
+              ${f.motivo ? `<br>${esc(f.motivo)}` : ''}
+            </div>
+            <button class="btn btn-secondary" style="font-size:10px;padding:4px 0;width:100%;border-radius:0" onclick="baixarFotoArquivo('${os.id}',${f.i})">⬇️ Baixar</button>
+          </div>`).join('')}</div>
+      </div>`;
+    })()}
+
     <!-- FOTO DE CONCLUSÃO DO SERVIÇO -->
     ${os.fotoFim ? `
     <div class="form-card" style="border-left:4px solid var(--verde-medio,#2d9e65)">
@@ -2088,7 +2144,7 @@ async function abrirDetalhes(id) {
         <p style="font-size:12px;color:var(--cinza-texto);margin-bottom:10px">Todas as fotos tiradas em campo, incluindo as das execuções rejeitadas. Vão para a impressão da O.S.</p>
         <div class="fotos-grid" style="margin-top:0">${fc.map((f, i) => {
           const rej = (f.ciclo || 1) < maxC;
-          const base = f.tipo === 'inicio' ? 'Início' : 'Conclusão';
+          const base = rotuloFotoCampo(f.tipo);
           return `<div class="foto-thumb">
             <img src="${f.foto}" onclick="verFoto('${f.foto}')" alt="${base}">
             <div style="font-size:9px;text-align:center;padding:3px 2px;color:${rej ? 'var(--vermelho)' : 'var(--cinza-texto)'};background:${rej ? 'var(--vermelho-claro)' : 'var(--cinza-bg)'}">${base} · Exec ${f.ciclo || 1}${rej ? ' (rej.)' : ''}</div>
@@ -2353,12 +2409,13 @@ function imprimirOS() {
   const fotosCampo = fotosCampoUnificadas(os);
   const maxCiclo = fotosCampo.reduce((m, f) => Math.max(m, f.ciclo || 1), 1);
   const fotoCampoHtml = fotosCampo.map(f => {
-    const base = f.tipo === 'inicio' ? 'Foto de início' : 'Foto de conclusão';
+    const base = `Foto de ${rotuloFotoCampo(f.tipo).toLowerCase()}`;
     const ciclo = f.ciclo || 1;
     const rejeitada = maxCiclo > 1 && ciclo < maxCiclo;
     const cicloTxt = (maxCiclo > 1 ? ` · Execução ${ciclo}${rejeitada ? ' (rejeitada)' : ''}` : '')
       + (f.substituida ? ' · refeita' : '');
-    const meta = [f.dataHora ? '📅 ' + fmtDataHora(f.dataHora) : '', f.gps ? '📍 ' + f.gps : '']
+    const meta = [f.dataHora ? '📅 ' + fmtDataHora(f.dataHora) : '', f.gps ? '📍 ' + f.gps : '',
+                  f.motivo ? '⏸️ ' + e(f.motivo) : '']
       .filter(Boolean).join(' &nbsp;·&nbsp; ');
     return `<div class="foto-bloco${(rejeitada || f.substituida) ? ' rejeitada' : ''}">
       <div class="foto-titulo">📷 ${base}${cicloTxt}</div>
@@ -2376,8 +2433,9 @@ function imprimirOS() {
 
   // ── Tempo de execução do serviço ──────────────────────────────────────────
   // Calculado por ciclo (foto de início → foto de fim), usando as datas do
-  // arquivo de fotos de campo. Cai para data_inicio/data_fim quando a O.S. é
-  // antiga e não tem arquivo. O.S. reaberta soma o tempo das execuções.
+  // arquivo de fotos de campo, descontando o tempo pausado (foto de pausa →
+  // foto de retomada). Cai para data_inicio/data_fim quando a O.S. é antiga
+  // e não tem arquivo. O.S. reaberta soma o tempo das execuções.
   const fmtDuracao = (ms) => {
     const min = Math.max(0, Math.round(ms / 60000));
     const h = Math.floor(min / 60), m = min % 60;
@@ -2392,11 +2450,27 @@ function imprimirOS() {
       const reg = porCiclo.get(c) || {};
       if (f.tipo === 'inicio') reg.ini = reg.ini === undefined ? t : Math.min(reg.ini, t);
       if (f.tipo === 'fim')    reg.fim = reg.fim === undefined ? t : Math.max(reg.fim, t);
+      if (f.tipo === 'pausa' || f.tipo === 'retomada') (reg.pausas = reg.pausas || []).push({ tipo: f.tipo, t });
       porCiclo.set(c, reg);
     });
+    // Soma os intervalos pausa → retomada, limitados ao período início → fim.
+    const tempoPausado = (r) => {
+      let ms = 0, desde = null;
+      (r.pausas || []).sort((a, b) => a.t - b.t).forEach(p => {
+        if (p.tipo === 'pausa' && desde === null) desde = p.t;
+        else if (p.tipo === 'retomada' && desde !== null) {
+          ms += Math.max(0, Math.min(p.t, r.fim) - Math.max(desde, r.ini));
+          desde = null;
+        }
+      });
+      return ms;
+    };
     let lista = [...porCiclo.entries()]
       .filter(([, r]) => r.ini !== undefined && r.fim !== undefined && r.fim >= r.ini)
-      .map(([c, r]) => ({ ciclo: c, ms: r.fim - r.ini }))
+      .map(([c, r]) => {
+        const pausado = Math.min(tempoPausado(r), r.fim - r.ini);
+        return { ciclo: c, ms: r.fim - r.ini - pausado, pausado };
+      })
       .sort((a, b) => a.ciclo - b.ciclo);
     if (!lista.length && os.dataInicioServico && os.dataFimServico) {
       const a = new Date(os.dataInicioServico).getTime();
@@ -2406,12 +2480,20 @@ function imprimirOS() {
     return lista;
   })();
   const totalExecMs = ciclosExec.reduce((soma, c) => soma + c.ms, 0);
+  const totalPausadoMs = ciclosExec.reduce((soma, c) => soma + (c.pausado || 0), 0);
   const emAndamento = !ciclosExec.length && os.dataInicioServico && !os.dataFimServico;
   const tempoExecTxt = ciclosExec.length
     ? fmtDuracao(totalExecMs)
     : (emAndamento ? 'em execução' : '–');
+  // Tempo pausado em campo separado: o tempo de serviço já vem sem as pausas.
+  const tempoPausadoTxt = ciclosExec.length
+    ? (totalPausadoMs > 0 ? fmtDuracao(totalPausadoMs) : 'sem pausas')
+    : (emAndamento ? 'em execução' : '–');
+  // O.S. reaberta: detalha cada execução e soma o tempo de serviço de todas.
   const tempoDetalhe = ciclosExec.length > 1
-    ? ciclosExec.map(c => `Execução ${c.ciclo}: ${fmtDuracao(c.ms)}`).join(' &nbsp;·&nbsp; ')
+    ? ciclosExec.map(c => `Execução ${c.ciclo}: ${fmtDuracao(c.ms)} de serviço`
+        + (c.pausado ? ` + ${fmtDuracao(c.pausado)} pausado` : '')).join(' &nbsp;·&nbsp; ')
+      + ` &nbsp;·&nbsp; <strong>Total de serviço: ${fmtDuracao(totalExecMs)}</strong>`
     : '';
 
   const historico = (os.historico || []).map(h => `
@@ -2559,9 +2641,10 @@ td.st { font-weight: 700; white-space: nowrap; }
     <div class="campo"><div class="rotulo">Solicitante</div><div class="valor">${e(os.solicitante) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Responsável técnico</div><div class="valor">${e(os.responsavel) || '–'}</div></div>
     <div class="campo"><div class="rotulo">Equipe / Empreiteira</div><div class="valor">${e(os.equipe) || '–'}</div></div>
-    <div class="campo"><div class="rotulo">⏱ Tempo de execução</div><div class="valor">${tempoExecTxt}</div></div>
+    <div class="campo"><div class="rotulo">⏱ Tempo de serviço (sem pausas)</div><div class="valor">${tempoExecTxt}</div></div>
+    <div class="campo"><div class="rotulo">⏸️ Tempo pausado</div><div class="valor">${tempoPausadoTxt}</div></div>
   </div>
-  ${tempoDetalhe ? `<div class="tempo-detalhe">${tempoDetalhe} &nbsp;·&nbsp; <strong>Total: ${fmtDuracao(totalExecMs)}</strong></div>` : ''}
+  ${tempoDetalhe ? `<div class="tempo-detalhe">${tempoDetalhe}</div>` : ''}
 </div>
 
 <div class="secao">
@@ -3277,6 +3360,18 @@ function obterLocalizacao() {
 }
 
 async function registrarFotoServico(id, tipo) {
+  // O motivo da pausa vem do campo do próprio card — nada de prompt(): no iOS
+  // o diálogo consome o gesto do toque e a câmera/GPS deixam de abrir.
+  let motivo = '';
+  if (tipo === 'pausa') {
+    const campo = document.getElementById('motivoPausa');
+    motivo = campo ? campo.value.trim() : '';
+    if (!motivo) {
+      toast('Informe o motivo da pausa antes de tirar a foto.');
+      if (campo) campo.focus();
+      return;
+    }
+  }
   // IMPORTANTE (iOS): dispara a geolocalização AINDA no gesto do toque, ANTES
   // de abrir a câmera. Ao voltar da câmera o iOS perde o "gesto do usuário" e
   // o pedido de permissão de localização não aparece.
@@ -3307,15 +3402,22 @@ async function registrarFotoServico(id, tipo) {
       // Grava os dados georreferenciados na própria imagem antes de enviar.
       const osAtual = (S.osAberta && S.osAberta.id === id) ? S.osAberta : S.ordens.find(o => o.id === id);
       const { foto, carimbada } = await carimbarFotoGeo(base64, dadosCarimbo(osAtual, tipo, gps, dataHora));
-      const endpoint = tipo === 'inicio' ? 'registrar-inicio' : 'registrar-fim';
+      const endpoint = { inicio: 'registrar-inicio', pausa: 'pausar', retomada: 'retomar' }[tipo] || 'registrar-fim';
       // `carimbada` precisa refletir a realidade: se o carimbo falhou, a foto
       // sobe sem ele e é carimbada na hora do download.
-      const body = { foto, gps, dataHora, carimbada };
+      const body = { foto, gps, dataHora, carimbada, ...(tipo === 'pausa' ? { motivo } : {}) };
       const r = await apiFetch(`/api/ordens/${id}/${endpoint}`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.erro); }
+      // Pausa/retomada: a O.S. continua com a equipe — reabre o detalhe atualizado.
+      if (tipo === 'pausa' || tipo === 'retomada') {
+        toast(tipo === 'pausa' ? '⏸️ Serviço pausado.' : '▶️ Serviço retomado!', 3200);
+        carregarOS();
+        abrirDetalhes(id);
+        return;
+      }
       // Ao concluir, a O.S. sai da lista da equipe (vai para validação) —
       // a mensagem explica o sumiço para o campo não achar que deu erro.
       toast(tipo === 'inicio'
